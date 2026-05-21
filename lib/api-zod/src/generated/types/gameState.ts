@@ -41,6 +41,8 @@ export interface GameState {
   /** True if the mover has committed their move this turn */
   moveCommitted: boolean;
   isYourTurn: boolean;
+  /** True when viewing in fog-free spectator mode (all pieces revealed) */
+  spectating?: boolean;
   /** @nullable */
   winner: number | null;
   /** @nullable */

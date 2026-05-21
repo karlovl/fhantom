@@ -26,6 +26,7 @@ import type {
   GameJoinResult,
   GameState,
   GameSummary,
+  GetGameParams,
   GuessInput,
   HealthStatus,
   JoinGameInput,
@@ -271,20 +272,29 @@ export const useCreateGame = <TError = ErrorType<unknown>,
       return useMutation(getCreateGameMutationOptions(options));
     }
 
-export const getGetGameUrl = (id: string,) => {
+export const getGetGameUrl = (id: string,
+    params?: GetGameParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/games/${id}`
+  return stringifiedParams.length > 0 ? `/api/games/${id}?${stringifiedParams}` : `/api/games/${id}`
 }
 
 /**
- * @summary Get game state from your perspective
+ * @summary Get game state from your perspective. Pass spectate=true to see all pieces revealed (for observers).
  */
-export const getGame = async (id: string, options?: RequestInit): Promise<GameState> => {
+export const getGame = async (id: string,
+    params?: GetGameParams, options?: RequestInit): Promise<GameState> => {
 
-  return customFetch<GameState>(getGetGameUrl(id),
+  return customFetch<GameState>(getGetGameUrl(id,params),
   {
     ...options,
     method: 'GET'
@@ -297,23 +307,25 @@ export const getGame = async (id: string, options?: RequestInit): Promise<GameSt
 
 
 
-export const getGetGameQueryKey = (id: string,) => {
+export const getGetGameQueryKey = (id: string,
+    params?: GetGameParams,) => {
     return [
-    `/api/games/${id}`
+    `/api/games/${id}`, ...(params ? [params] : [])
     ] as const;
     }
 
 
-export const getGetGameQueryOptions = <TData = Awaited<ReturnType<typeof getGame>>, TError = ErrorType<void>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGame>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetGameQueryOptions = <TData = Awaited<ReturnType<typeof getGame>>, TError = ErrorType<void>>(id: string,
+    params?: GetGameParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGame>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetGameQueryKey(id);
+  const queryKey =  queryOptions?.queryKey ?? getGetGameQueryKey(id,params);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGame>>> = ({ signal }) => getGame(id, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGame>>> = ({ signal }) => getGame(id,params, { signal, ...requestOptions });
 
 
 
@@ -327,15 +339,16 @@ export type GetGameQueryError = ErrorType<void>
 
 
 /**
- * @summary Get game state from your perspective
+ * @summary Get game state from your perspective. Pass spectate=true to see all pieces revealed (for observers).
  */
 
 export function useGetGame<TData = Awaited<ReturnType<typeof getGame>>, TError = ErrorType<void>>(
- id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGame>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+ id: string,
+    params?: GetGameParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGame>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetGameQueryOptions(id,options)
+  const queryOptions = getGetGameQueryOptions(id,params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

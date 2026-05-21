@@ -64,7 +64,7 @@ paths:
     get:
       operationId: getGame
       tags: [games]
-      summary: Get game state from your perspective
+      summary: Get game state from your perspective. Pass spectate=true to see all pieces revealed (for observers).
       parameters:
         - name: id
           in: path
@@ -76,6 +76,12 @@ paths:
           required: false
           schema:
             type: string
+        - name: spectate
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: When true, all pieces are fully revealed (no fog). Used by spectator/share links.
       responses:
         "200":
           description: Game state
@@ -446,6 +452,9 @@ components:
           description: True if the mover has committed their move this turn
         isYourTurn:
           type: boolean
+        spectating:
+          type: boolean
+          description: True when viewing in fog-free spectator mode (all pieces revealed)
         winner:
           type: ["integer", "null"]
         winCondition:

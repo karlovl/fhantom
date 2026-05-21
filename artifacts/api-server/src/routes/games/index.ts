@@ -97,7 +97,8 @@ router.get("/games/:id", async (req, res): Promise<void> => {
     .from(proximityRevealsTable)
     .where(eq(proximityRevealsTable.gameId, rawId));
 
-  res.json(buildGameState(game, pieces, proximity, playerToken as string | null));
+  const spectate = req.query["spectate"] === "true" || req.query["spectate"] === "1";
+  res.json(buildGameState(game, pieces, proximity, playerToken as string | null, spectate));
 });
 
 // ─── POST /games/:id/join ─────────────────────────────────────────────────────

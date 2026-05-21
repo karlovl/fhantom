@@ -355,13 +355,17 @@ export function buildGameState(
   game: Game,
   allPieces: GamePiece[],
   proximityHistory: ProximityReveal[],
-  playerToken: string | null
+  playerToken: string | null,
+  spectate = false
 ) {
   let yourNumber: number | null = null;
-  if (playerToken) {
+  if (!spectate && playerToken) {
     if (playerToken === game.player1Token) yourNumber = 1;
     else if (playerToken === game.player2Token) yourNumber = 2;
   }
+
+  // Spectators see the board from P1's perspective (row 1 = P1 home row = abs 5)
+  const perspectivePlayer = yourNumber ?? 1;
 
   const yourName = yourNumber === 1 ? game.player1Name : yourNumber === 2 ? game.player2Name : null;
   const opponentName = yourNumber === 1 ? game.player2Name : yourNumber === 2 ? game.player1Name : null;
@@ -373,17 +377,70 @@ export function buildGameState(
     : false;
 
   const exposedAbsRows = parseExposedRows(game.exposedRows);
+  const exposedPersRows = exposedAbsRows.map(r => absToPers(r, perspectivePlayer));
 
-  // Compute exposed rows in perspective coordinates for this player
-  const exposedPersRows = yourNumber !== null
-    ? exposedAbsRows.map(r => absToPers(r, yourNumber!))
-    : exposedAbsRows; // spectators get absolute
-
-  // A piece is visible if it's flagged visible OR its row is exposed
+  // A piece is visible if flagged visible OR its row is exposed OR we're spectating
   const isPieceExposed = (p: GamePiece): boolean =>
     p.isPlaced && p.row != null && exposedAbsRows.includes(p.row);
 
-  // Build piece views
+  // ── Spectator mode: reveal all pieces, split by player, use P1 perspective ──
+  if (spectate) {
+    const p1Pieces = allPieces
+      .filter(p => p.player === 1)
+      .map(p => ({
+        index: p.pieceIndex,
+        isPlaced: p.isPlaced,
+        isAlive: p.isAlive,
+        col: p.col ?? null,
+        row: p.isPlaced && p.row != null ? absToPers(p.row, 1) : null,
+        strideCount: p.strideCount,
+        isVisible: true,
+      }));
+
+    const p2Pieces = allPieces
+      .filter(p => p.player === 2)
+      .map(p => ({
+        index: p.pieceIndex,
+        isPlaced: p.isPlaced,
+        isAlive: p.isAlive,
+        isVisible: true,
+        col: p.col ?? null,
+        // P2 pieces shown in P1 perspective (abs → P1 persp)
+        row: p.isPlaced && p.row != null ? absToPers(p.row, 1) : null,
+      }));
+
+    const proximity = proximityHistory.map(pr => ({
+      round: pr.round, col: pr.col, row: pr.row,
+      result: pr.result as "contact" | "clear",
+    }));
+
+    const monsoonsDone = [4, 8, 12].filter(t => t <= game.round - 1).length;
+    const nextExposureRound =
+      game.round <= 4 ? 4 : game.round <= 8 ? 8 : game.round <= 12 ? 12 : null;
+
+    return {
+      id: game.id,
+      status: game.status,
+      yourNumber: null as number | null,
+      yourName: game.player1Name,
+      opponentName: game.player2Name ?? null,
+      currentTurnPlayer: game.currentTurnPlayer,
+      phase: game.phase as "commit_move" | "commit_guess" | "finished",
+      round: game.round,
+      exposedRows: exposedPersRows,
+      exposure: { exposedRows: exposedPersRows, monsoonsDone, nextExposureRound },
+      yourPieces: p1Pieces,
+      opponentPieces: p2Pieces,
+      proximityHistory: proximity,
+      moveCommitted: game.phase === "commit_guess",
+      isYourTurn: false,
+      spectating: true,
+      winner: game.winner ?? null,
+      winCondition: game.winCondition ?? null,
+    };
+  }
+
+  // ── Normal player perspective ──
   const yourPieces = yourNumber !== null
     ? allPieces.filter(p => p.player === yourNumber).map(p => ({
         index: p.pieceIndex,
@@ -392,7 +449,6 @@ export function buildGameState(
         col: p.col ?? null,
         row: p.isPlaced && p.row != null ? absToPers(p.row, yourNumber!) : null,
         strideCount: p.strideCount,
-        // isVisible means opponent can see this piece
         isVisible: p.isVisible || isPieceExposed(p),
       }))
     : [];
@@ -414,21 +470,14 @@ export function buildGameState(
         })
     : [];
 
-  // Proximity history in absolute coords (for the frontend to render)
   const proximity = proximityHistory.map(pr => ({
-    round: pr.round,
-    col: pr.col,
-    row: pr.row,
+    round: pr.round, col: pr.col, row: pr.row,
     result: pr.result as "contact" | "clear",
   }));
 
-  // Monsoon / exposure schedule
   const monsoonsDone = [4, 8, 12].filter(t => t <= game.round - 1).length;
   const nextExposureRound =
-    game.round <= 4 ? 4
-    : game.round <= 8 ? 8
-    : game.round <= 12 ? 12
-    : null;
+    game.round <= 4 ? 4 : game.round <= 8 ? 8 : game.round <= 12 ? 12 : null;
 
   return {
     id: game.id,
@@ -440,16 +489,13 @@ export function buildGameState(
     phase: game.phase as "commit_move" | "commit_guess" | "finished",
     round: game.round,
     exposedRows: exposedPersRows,
-    exposure: {
-      exposedRows: exposedPersRows,
-      monsoonsDone,
-      nextExposureRound,
-    },
+    exposure: { exposedRows: exposedPersRows, monsoonsDone, nextExposureRound },
     yourPieces,
     opponentPieces,
     proximityHistory: proximity,
     moveCommitted: game.phase === "commit_guess",
     isYourTurn,
+    spectating: false,
     winner: game.winner ?? null,
     winCondition: game.winCondition ?? null,
   };

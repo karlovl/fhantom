@@ -42,10 +42,14 @@ export const CreateGameBody = zod.object({
 
 
 /**
- * @summary Get game state from your perspective
+ * @summary Get game state from your perspective. Pass spectate=true to see all pieces revealed (for observers).
  */
 export const GetGameParams = zod.object({
   "id": zod.coerce.string()
+})
+
+export const GetGameQueryParams = zod.object({
+  "spectate": zod.coerce.boolean().optional().describe('When true, all pieces are fully revealed (no fog). Used by spectator\/share links.')
 })
 
 export const GetGameHeader = zod.object({
@@ -92,6 +96,7 @@ export const GetGameResponse = zod.object({
 })),
   "moveCommitted": zod.boolean().describe('True if the mover has committed their move this turn'),
   "isYourTurn": zod.boolean(),
+  "spectating": zod.boolean().optional().describe('True when viewing in fog-free spectator mode (all pieces revealed)'),
   "winner": zod.number().nullable(),
   "winCondition": zod.union([zod.literal('capture'),zod.literal('forfeit'),zod.literal(null)]).nullable()
 })

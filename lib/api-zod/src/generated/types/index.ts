@@ -20,6 +20,7 @@ export * from './gameStateStatus';
 export * from './gameStateWinCondition';
 export * from './gameSummary';
 export * from './gameSummaryStatus';
+export * from './getGameParams';
 export * from './guessInput';
 export * from './healthStatus';
 export * from './joinGameInput';

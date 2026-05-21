@@ -1,4 +1,4 @@
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, Link } from "wouter";
 import { useEffect, useState } from "react";
 import {
   useGetGame,
@@ -27,7 +27,7 @@ export default function Game() {
 
   const token = localStorage.getItem(`fathom-token-${gameId}`) || "";
 
-  const { data: game, isLoading, isError } = useGetGame(gameId!, {
+  const { data: game, isLoading, isError } = useGetGame(gameId!, undefined, {
     query: { queryKey: getGetGameQueryKey(gameId!), refetchInterval: 2000, enabled: !!gameId },
     request: { headers: { "X-Player-Token": token } },
   });
@@ -177,9 +177,17 @@ export default function Game() {
               )}
             </div>
           </div>
-          <div className="text-right">
-            <div className="text-muted-foreground text-xs uppercase tracking-widest mb-1">Round</div>
-            <div className="text-2xl font-mono text-primary">{game.round}</div>
+          <div className="flex items-center gap-4">
+            <Link
+              href={`/spectate/${gameId}`}
+              className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground hover:text-primary border border-border hover:border-primary/50 px-2 py-1 rounded transition-colors"
+            >
+              Spectate
+            </Link>
+            <div className="text-right">
+              <div className="text-muted-foreground text-xs uppercase tracking-widest mb-1">Round</div>
+              <div className="text-2xl font-mono text-primary">{game.round}</div>
+            </div>
           </div>
         </div>
 
