@@ -3,20 +3,23 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Fathom game API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: games
+    description: Game lifecycle and state
+  - name: actions
+    description: In-game player actions
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +27,245 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /games:
+    get:
+      operationId: listGames
+      tags: [games]
+      summary: List open games (waiting for player 2)
+      responses:
+        "200":
+          description: List of open games
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GameSummary"
+    post:
+      operationId: createGame
+      tags: [games]
+      summary: Create a new game (become player 1)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGameInput"
+      responses:
+        "201":
+          description: Game created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GameJoinResult"
+
+  /games/{id}:
+    get:
+      operationId: getGame
+      tags: [games]
+      summary: Get game state from your perspective
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Player-Token
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Game state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GameState"
+        "404":
+          description: Game not found
+
+  /games/{id}/join:
+    post:
+      operationId: joinGame
+      tags: [games]
+      summary: Join a game as player 2
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JoinGameInput"
+      responses:
+        "200":
+          description: Joined successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GameJoinResult"
+        "400":
+          description: Game not joinable
+        "404":
+          description: Game not found
+
+  /games/{id}/submit-move:
+    post:
+      operationId: submitMove
+      tags: [actions]
+      summary: Submit your move (mover only). Col 0-6 (A-G), row 1-6 from your perspective.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Player-Token
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MoveInput"
+      responses:
+        "200":
+          description: Move submitted, waiting for guess
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionResult"
+        "400":
+          description: Invalid move
+        "403":
+          description: Not your turn
+        "404":
+          description: Game not found
+
+  /games/{id}/submit-guess:
+    post:
+      operationId: submitGuess
+      tags: [actions]
+      summary: Submit your guess (guesser only). Pass by setting pass=true.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Player-Token
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuessInput"
+      responses:
+        "200":
+          description: Guess submitted, resolving turn
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TurnResult"
+        "400":
+          description: Invalid guess
+        "403":
+          description: Not your turn to guess
+        "404":
+          description: Game not found
+
+  /games/{id}/forfeit:
+    post:
+      operationId: forfeitGame
+      tags: [actions]
+      summary: Forfeit the game
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Player-Token
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Game forfeited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActionResult"
+        "403":
+          description: Not a player in this game
+        "404":
+          description: Game not found
+
+  /games/{id}/events:
+    get:
+      operationId: getGameEvents
+      tags: [games]
+      summary: Get event log for this game (perspective-aware)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Player-Token
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Event list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GameEvent"
+        "404":
+          description: Game not found
+
+  /games/{id}/proximity-history:
+    get:
+      operationId: getProximityHistory
+      tags: [games]
+      summary: Get all proximity reveal results for this game
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Proximity reveal history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProximityReveal"
+        "404":
+          description: Game not found
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +276,299 @@ components:
       required:
         - status
 
+    GameSummary:
+      type: object
+      required: [id, status, createdAt, player1Name, round]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [waiting, active, finished]
+        createdAt:
+          type: string
+        player1Name:
+          type: string
+        round:
+          type: integer
+
+    CreateGameInput:
+      type: object
+      required: [playerName]
+      properties:
+        playerName:
+          type: string
+          minLength: 1
+          maxLength: 32
+
+    JoinGameInput:
+      type: object
+      required: [playerName]
+      properties:
+        playerName:
+          type: string
+          minLength: 1
+          maxLength: 32
+
+    GameJoinResult:
+      type: object
+      required: [gameId, playerToken, playerNumber, playerName]
+      properties:
+        gameId:
+          type: string
+        playerToken:
+          type: string
+        playerNumber:
+          type: integer
+          enum: [1, 2]
+        playerName:
+          type: string
+
+    PieceState:
+      type: object
+      required: [index, isPlaced, isAlive, col, row, strideCount, isVisible]
+      properties:
+        index:
+          type: integer
+          enum: [0, 1]
+        isPlaced:
+          type: boolean
+        isAlive:
+          type: boolean
+        col:
+          type: ["integer", "null"]
+          description: Column 0-6 (A-G), null if not placed
+        row:
+          type: ["integer", "null"]
+          description: Row 1-6 from your own perspective, null if not placed
+        strideCount:
+          type: integer
+        isVisible:
+          type: boolean
+          description: True if opponent can see this piece
+
+    OpponentPieceState:
+      type: object
+      required: [index, isPlaced, isAlive, isVisible]
+      properties:
+        index:
+          type: integer
+          enum: [0, 1]
+        isPlaced:
+          type: boolean
+        isAlive:
+          type: boolean
+        isVisible:
+          type: boolean
+        col:
+          type: ["integer", "null"]
+          description: Column if visible, null otherwise
+        row:
+          type: ["integer", "null"]
+          description: Row 1-6 from your perspective if visible, null otherwise
+
+    ProximityReveal:
+      type: object
+      required: [round, col, row, result]
+      properties:
+        round:
+          type: integer
+        col:
+          type: integer
+        row:
+          type: integer
+          description: Row in absolute coordinates (0-5)
+        result:
+          type: string
+          enum: [contact, clear]
+
+    MonsoonStatus:
+      type: object
+      required: [rowsRemaining, nextMonsoonRound, currentRound]
+      properties:
+        rowsRemaining:
+          type: integer
+        nextMonsoonRound:
+          type: integer
+        currentRound:
+          type: integer
+
+    GameState:
+      type: object
+      required: [id, status, yourNumber, yourName, opponentName, currentTurnPlayer, phase, round, rowsRemaining, monsoon, yourPieces, opponentPieces, proximityHistory, moveCommitted, isYourTurn, winner, winCondition]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [waiting, active, finished]
+        yourNumber:
+          type: ["integer", "null"]
+          description: 1 or 2, null if spectating
+        yourName:
+          type: ["string", "null"]
+        opponentName:
+          type: ["string", "null"]
+        currentTurnPlayer:
+          type: ["integer", "null"]
+          description: 1 or 2, whose turn to move
+        phase:
+          type: string
+          enum: [commit_move, commit_guess, finished]
+        round:
+          type: integer
+        rowsRemaining:
+          type: integer
+        monsoon:
+          $ref: "#/components/schemas/MonsoonStatus"
+        yourPieces:
+          type: array
+          items:
+            $ref: "#/components/schemas/PieceState"
+        opponentPieces:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpponentPieceState"
+        proximityHistory:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProximityReveal"
+        moveCommitted:
+          type: boolean
+          description: True if the mover has committed their move this turn
+        isYourTurn:
+          type: boolean
+          description: True if you are the current mover
+        winner:
+          type: ["integer", "null"]
+          description: 1 or 2 if game over, null otherwise
+        winCondition:
+          type: ["string", "null"]
+          enum: [crossing, stride, collision, monsoon, forfeit, null]
+
+    MoveInput:
+      type: object
+      required: [pieceIndex, col, row]
+      properties:
+        pieceIndex:
+          type: integer
+          enum: [0, 1]
+          description: Which of your 2 pieces to move
+        col:
+          type: integer
+          minimum: 0
+          maximum: 6
+          description: Destination column 0-6 (A-G)
+        row:
+          type: integer
+          minimum: 1
+          maximum: 6
+          description: Destination row 1-6 from your perspective
+
+    GuessInput:
+      type: object
+      required: [pass]
+      properties:
+        pass:
+          type: boolean
+          description: True to pass, false to guess a square
+        col:
+          type: ["integer", "null"]
+          minimum: 0
+          maximum: 6
+          description: Guessed column (required if pass=false)
+        row:
+          type: ["integer", "null"]
+          minimum: 1
+          maximum: 6
+          description: Guessed row from your perspective (required if pass=false)
+
+    ActionResult:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+
+    TurnResult:
+      type: object
+      required: [success, message, outcome]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        outcome:
+          $ref: "#/components/schemas/TurnOutcome"
+
+    TurnOutcome:
+      type: object
+      required: [moveBlocked, guessCorrect, guessPassed, strideGained, collision, monsoonTriggered, gameOver, winner, winCondition]
+      properties:
+        moveBlocked:
+          type: boolean
+        guessCorrect:
+          type: boolean
+        guessPassed:
+          type: boolean
+        strideGained:
+          type: boolean
+        collision:
+          type: boolean
+        monsoonTriggered:
+          type: boolean
+        proximityReveals:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProximityReveal"
+        displacedPieces:
+          type: array
+          items:
+            type: object
+            required: [player, pieceIndex]
+            properties:
+              player:
+                type: integer
+              pieceIndex:
+                type: integer
+        gameOver:
+          type: boolean
+        winner:
+          type: ["integer", "null"]
+        winCondition:
+          type: ["string", "null"]
+          enum: [crossing, stride, collision, monsoon, forfeit, null]
+
+    GameEvent:
+      type: object
+      required: [seq, round, eventType, timestamp, data]
+      properties:
+        seq:
+          type: integer
+        round:
+          type: integer
+        eventType:
+          type: string
+          enum: [move_blocked, move_success, guess_correct, guess_wrong, pass, collision, crossing, stride_win, monsoon, proximity_reveal, game_start, piece_placed, forfeit, displacement]
+        timestamp:
+          type: string
+        data:
+          type: object
+          description: Event-specific data
+          properties:
+            player:
+              type: ["integer", "null"]
+            pieceIndex:
+              type: ["integer", "null"]
+            col:
+              type: ["integer", "null"]
+            row:
+              type: ["integer", "null"]
+            strideCount:
+              type: ["integer", "null"]
+            proximityResult:
+              type: ["string", "null"]
+            message:
+              type: ["string", "null"]

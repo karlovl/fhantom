@@ -1,0 +1,651 @@
+# FATHOM — Full Scope
+
+*Understand after searching. Measure the depth. Sound what is hidden.*
+
+---
+
+## I. THE GAME
+
+### Premise
+
+Fathom is a two-player fog-hunting game where the board state is encrypted. You commit moves into darkness. You guess where your opponent is going. A monsoon shrinks the board. The fog lifts in fragments. You hunt through uncertainty until you cross — or collide.
+
+The game only exists because FHE and ZK make it possible. The cryptography is not a feature. It is the game engine.
+
+### Name
+
+**Fathom.** To fathom is to understand after searching. To measure depth. To sound what is hidden. The players fathom. The FHE fathoms. The fog demands it.
+
+---
+
+## II. THE BOARD
+
+### Geometry
+
+**7 columns x 6 rows. 42 squares.**
+
+Custom geometry. Not a chessboard. No inherited chess vocabulary.
+
+- **Columns**: A through G, left to right from each player's perspective.
+- **Rows**: 1 through 6, numbered from each player's own side. Row 1 = your home row. Row 6 = the far side.
+- **Far side**: The opponent's home row. Reach it and you win.
+
+### Visual Identity
+
+The board is dark by default. Hidden squares are dark — fog is the natural state. Revealed squares illuminate. The board looks like what it is: a space where information is the scarce resource.
+
+Design directions:
+- **Void**: Dark grid, revealed squares glow like starlight. You navigate through darkness.
+- **Circuit**: Grid lines like traces, hidden squares are unpowered, revealed squares light up. Serves the crypto narrative.
+- **Seabed**: Hidden squares are deep water, revealed squares are shallows. The fog lifts like the tide going out.
+
+Pick one. They all work. The board must look like the fog, not like chess.
+
+### Coordinate System
+
+For on-chain representation, each square is indexed 0-41 (row-major: row 0 col 0 = A1, row 0 col 6 = G1, row 5 col 0 = A6, etc.). Each player's perspective is transformed — "far side" is always the row farthest from you.
+
+---
+
+## III. PIECES
+
+### Type
+
+**2 pieces per player. All identical.** No piece types in the MVP. The variance comes from position, timing, and the fog — not from special abilities.
+
+### Movement
+
+**King movement: 1 square in any direction.** Up to 8 possible destinations from the center of the board. 5 from an edge. 3 from a corner.
+
+King movement means the board has no mandatory direction. Pieces can advance, retreat, or dodge. The constraint that creates pressure is the **stride counter** and the **monsoon**, not the movement rules.
+
+### Starting Position
+
+All pieces begin off-board. On your first turn, you place a piece on any square in your home row (row 1 from your perspective). Placement counts as a turn. Placement can be guessed by the opponent (same commit-guess-reveal loop).
+
+If your placement is blocked by a correct guess, the piece stays off-board and you must attempt placement again next turn.
+
+### Visibility
+
+Pieces begin hidden from the opponent. A piece becomes visible (position declassified to the opponent) only when:
+
+1. **Monsoon displacement**: The piece is on a row consumed by the monsoon and is pushed forward. The piece's position is permanently revealed.
+2. **Collision**: The piece is involved in a collision (either as mover or target). Both pieces' positions are revealed at the moment of collision.
+3. **Physical crossing**: The piece reaches the far side. The winning move is public.
+
+Otherwise, your opponent cannot see your piece. They can only infer your position from proximity reveals, guess patterns, and behavioral reads.
+
+---
+
+## IV. THE CORE LOOP — COMMIT, GUESS, REVEAL
+
+This is the game. Every other mechanic serves this loop.
+
+### 1. Commit
+
+The mover selects a piece and a destination square. The move is submitted as a commitment.
+
+- **On-chain**: A ZK proof of validity — the proof verifies the move follows the rules (1 square, king movement, destination is on the board, no self-collision with own other piece) without revealing the move. The commitment is a hash of (piece_id, destination, nonce) stored on Miden.
+- **In person**: Lift the piece. Hold it visibly above the board. The clock starts.
+
+### 2. Guess
+
+The opponent has two choices:
+
+- **Guess**: Submit one square they believe the piece is moving to.
+- **Pass**: Submit a pass. No risk. No reward.
+
+The guess is binding. Once submitted, it cannot be changed.
+
+### 3. Reveal
+
+Both reveal simultaneously.
+
+- **On-chain**: Commit-reveal scheme. Both parties submit their reveal (move destination and guess) at the same time. The contract verifies the commitments match the reveals.
+- **In person**: Count 3-2-1. Place the piece and the guess finger at the same time.
+
+### 4. Resolve
+
+Apply the outcome table (see Section V).
+
+### 5. Fog Tick
+
+If a monsoon cycle has completed this round, resolve monsoon effects (see Section VII).
+
+### 6. Turn Passes
+
+The other player becomes the mover.
+
+---
+
+## V. OUTCOME TABLE
+
+| Situation | Result |
+|---|---|
+| Move made + opponent guessed correctly | Move blocked. Piece stays where it was. The guesser read you. |
+| Move made + opponent guessed wrong | Move succeeds. Mover's piece moves to destination. +1 stride to the moving piece. | guesser loses round
+| Move made + opponent passed | Move succeeds. Mover's piece moves to destination. No stride bonus. |
+| Mover's piece lands on opponent's piece | Collision. Mover captures the opponent's piece. Opponent loses that piece. Game continues with remaining pieces. |
+| Opponent guessed correctly AND guess square = collision square | Move blocked. No collision. The guesser saved their piece. The correct guess took priority. |
+| Placement turn + opponent guessed the placement square correctly | Placement blocked. Piece stays off-board. Attempt placement next turn. |
+
+### Collision Priority
+
+If the mover's destination contains an opponent piece AND the opponent guessed the collision square correctly, the guess takes priority. The move is blocked. The capture does not happen. This is the only way to survive a collision — reading the attack correctly.
+
+### Self-Collision
+
+A piece cannot move to a square occupied by its own other piece. This is verified by the ZK move proof. If only one piece remains, self-collision is impossible.
+
+---
+
+## VI. WIN CONDITIONS
+
+Two ways to win. One engine.
+
+### A. Physical Crossing
+
+A piece that reaches any square on the opponent's home row (row 1 from the opponent's perspective) wins immediately. The piece has crossed. Game over.
+
+Physical crossing is the preferred path — it's faster (5 forward moves minimum) and decisive.
+
+### B. Stride Crossing
+
+Each piece tracks a **stride count**. Stride is a measure of forward commitment. It accumulates:
+
+- **+1 stride** for each forward move (moving toward the opponent's home row — including diagonal-forward, i.e., any move that decreases the row number from the mover's perspective).
+- **+1 stride** when the opponent guesses the mover's move wrong. The bad read pushes the mover forward.
+- **+0 stride** for lateral moves (same row).
+- **+0 stride** for backward moves (increasing row number from mover's perspective).
+- **+0 stride** when the opponent passes (you moved freely, but earned no stride bonus).
+
+**When any piece reaches 5 stride, that player wins.** The piece has crossed enough ground to win even if it hasn't physically reached the far side.
+
+Stride is visible to the owning player only. The opponent does not know your stride count until it hits 5 and the game ends. This creates a hidden timer — the opponent can't see how close you are to winning by stride, which affects their risk calculus.
+
+### C. Collision Victory
+
+If a player loses all pieces to collision, they lose. The surviving player wins.
+
+### D. Monsoon Timeout
+
+When the monsoon has consumed the board (after 12 rounds), the game ends. The winner is determined by:
+
+1. **Highest stride count** on any surviving piece.
+2. If tied, **most pieces alive**.
+3. If still tied, **draw**.
+
+Every game terminates. No soft locks. No infinite circling.
+
+---
+
+## VII. THE MONSOON
+
+The board shrinks. Time is not infinite.
+
+### Schedule
+
+**Every 4 full rounds** (each player has moved 4 times = 8 half-turns), the monsoon advances:
+
+| Trigger | Rows Consumed | Rows Remaining |
+|---|---|---|
+| Round 4 | Row 1 (white) + Row 6 (black) | 4 rows (rows 2-5) |
+| Round 8 | Row 2 (white) + Row 5 (black) | 2 rows (rows 3-4) |
+| Round 12 | Row 3 (white) + Row 4 (black) | 0 rows — game ends |
+
+### Effects
+
+Each time the monsoon advances:
+
+1. **Row consumed.** The consumed rows are removed from the board. Pieces can no longer move to or through those rows.
+
+2. **Displacement.** Any piece on a consumed row is pushed forward 1 row (toward the center of the board). The piece's new position is the same column, one row closer to the center.
+
+3. **Visibility.** Any displaced piece becomes **permanently visible** to the opponent. Its position is declassified. The fog lifts from that piece. This is the penalty for being behind the monsoon line — you were too slow, and now you're exposed.
+
+4. **Proximity reveal.** On the remaining rows, the fog lifts by 1 square per player. One hidden square per player is selected (determined by on-chain randomness — a commit-reveal random beacon) and receives a **proximity reveal**: both players learn whether any opponent piece is within 1 square (king-move distance) of that square. Not the exact position — just presence. "Contact" or "Clear." Like sonar. Like fathoming the depth.
+
+### Proximity Reveal Mechanics
+
+- **"Contact"**: At least one opponent piece is within 1 square (king-move distance) of the revealed square. This includes the 8 adjacent squares and the revealed square itself. You know something is nearby. You don't know exactly where.
+- **"Clear"**: No opponent piece is within 1 square. You know the area is safe — for now.
+- Proximity reveals are cumulative. Over the course of the game, players build a mental map of "contact" and "clear" zones. This is how the hunt narrows.
+
+### The Three Acts
+
+**Act 1 — Blind (Rounds 1-4)**
+Full fog. Both players commit moves into darkness. Guesses are weighted by intuition and nothing else. The proximity reveals in this phase are sparse — you're getting early sonar pings, but the board is large and the information is thin. Variable ratio reinforcement: sometimes you guess right, sometimes wrong, and the reward feels earned even when it's partly luck.
+
+**Act 2 — Fragments (Rounds 5-8)**
+The monsoon has consumed the home rows. Any pieces that were still on row 1 or row 6 are now visible. Proximity reveals are accumulating. You have fragments of information — "contact near D4" — but not certainty. The board is smaller (4 rows), so the fragments are denser. The hunt is on. Skill separates from luck. The near-miss effect is brutal: "I had you narrowed to two squares and I guessed wrong."
+
+**Act 3 — The Chase (Rounds 9-12)**
+The board is 2 rows. The fog is thin. Most pieces are visible or narrowed to small zones. The endgame is decisive, not dodgy. You can see enough to hunt. Winning feels like genuine pursuit. Losing feels like "I should have committed earlier when I had the advantage." That's the thought that makes people play again.
+
+---
+
+## VIII. THE MOVE TIMER
+
+A game without a clock is a conversation without an end. The move timer is the micro-timer. The monsoon is the macro-timer. Both prevent stalling.
+
+### In-Person Play
+
+- **Move timer**: 15 seconds from the moment it's your turn. You must commit a move within 15 seconds or your turn is auto-passed (you do not move, your opponent does not guess, turn passes).
+- **Guess timer**: 10 seconds from the moment the mover commits. You must guess or pass within 10 seconds or your turn is auto-passed (the mover moves freely, no stride bonus).
+
+### On-Chain — Real-Time Play
+
+- **Move timer**: 30 seconds. If the mover does not commit within 30 seconds, the turn is auto-passed.
+- **Guess timer**: 15 seconds. If the guesser does not respond within 15 seconds, the turn is auto-passed (mover moves freely, no stride bonus).
+
+### On-Chain — Async Play
+
+- **Turn timer**: 24 hours. If a player does not act within 24 hours, their turn is auto-passed.
+- **No distinction between move and guess phases** — the total time budget per turn is 24 hours from the moment it becomes your turn.
+
+### Auto-Pass Rules
+
+- If the mover is auto-passed: no move, no guess, turn passes to the opponent.
+- If the guesser is auto-passed: treated as a pass. The mover moves freely. No stride bonus.
+- Auto-passes do not trigger stride, monsoon, or fog effects.
+- 3 consecutive auto-passes by the same player = they forfeit the game. This prevents griefing by deliberate inactivity.
+
+---
+
+## IX. THE FOG — INFORMATION ARCHITECTURE
+
+### What Is Hidden
+
+- Opponent piece positions (exact squares)
+- Opponent stride counts (exact numbers)
+- Opponent move destinations (until revealed via commit-reveal)
+
+### What Is Visible
+
+- Your own piece positions
+- Your own stride counts
+- All proximity reveal results ("contact" / "clear")
+- Displaced pieces (permanently visible after monsoon displacement)
+- Collision events (both pieces' positions revealed at moment of collision)
+- Crossing events (the winning move is public)
+- The monsoon schedule (predictable — every 4 rounds)
+- Board geometry (which rows remain)
+
+### What Is Proven, Not Shown
+
+- Move validity (ZK proof — you know it's legal, you don't know what it is)
+- Proximity results (ZK proof — you know the answer is correct, you don't know the opponent's position)
+- Stride counts (ZK proof — the count is correctly incremented, opponent doesn't see it until it hits 5)
+
+---
+
+## X. ON-CHAIN ARCHITECTURE
+
+### The Game That Earns FHE and ZK
+
+Fathom is a game that **cannot be implemented without FHE and ZK**. The mechanics structurally require computing on hidden state and proving validity without revealing it. The cryptography is the game engine, not a feature.
+
+### What FHE Does (Fhenix)
+
+**Encrypted state computation.** The board state is encrypted. Both players' piece positions are encrypted. FHE allows computation on the encrypted state without decrypting it.
+
+1. **Collision detection**: Two encrypted positions are compared. FHE computation returns "collision" or "no collision" without decrypting either position. This is the proof-of-concept. If this works, the game is possible. If it doesn't, the game is a board game with a database.
+
+2. **Proximity computation**: Given a revealed square, FHE computation on encrypted state returns "contact" (at least one opponent piece within 1 square) or "clear" (no opponent piece within 1 square) without revealing which piece or where.
+
+### What ZK Does (Miden)
+
+**Validity proofs without revelation.** ZK proofs allow a player to prove a statement is true without revealing the underlying data.
+
+1. **Move validity**: Mover submits a ZK proof that their move is legal (1 square, king movement, destination is on the board, no self-collision). The proof verifies without revealing the move destination.
+
+2. **Proximity proofs**: When the fog lifts on a square, a ZK proof establishes "there exists an opponent piece within 1 square" or "no opponent piece within 1 square" without revealing the piece's exact position.
+
+3. **Stride proofs**: ZK proof that the mover's stride count has been incremented correctly according to the rules. The opponent does not see the stride count until it reaches 5 (crossing victory declared).
+
+4. **Placement proofs**: ZK proof that the mover's piece is being placed on their home row (row 1 from their perspective), without revealing which square.
+
+### Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                      FATHOM                              │
+│                                                          │
+│  ┌──────────────┐              ┌──────────────────┐      │
+│  │    Miden     │              │     Fhenix        │      │
+│  │  (ZK rollup) │              │   (FHE compute)  │      │
+│  │              │              │                  │      │
+│  │ • Move proofs│              │ • Collision det  │      │
+│  │ • Stride    │   request     │ • Proximity det  │      │
+│  │   proofs    │──────────────►│                  │      │
+│  │ • Game state│              │                  │      │
+│  │ • Commit-   │   result     │ • Encrypted      │      │
+│  │   reveal    │◄─────────────│   positions      │      │
+│  │ • Random    │              │ • Encrypted      │      │
+│  │   beacon    │              │   stride counts  │      │
+│  └──────────────┘              └──────────────────┘      │
+│         ▲                              ▲                  │
+│         │                              │                  │
+│         │          ┌───────────┐       │                  │
+│         └──────────│  Client   │───────┘                  │
+│                    │           │                           │
+│                    │ • UI      │                           │
+│                    │ • Commit  │                           │
+│                    │ • Guess   │                           │
+│                    │ • Reveal  │                           │
+│                    └───────────┘                           │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Game State (On-Chain)
+
+```rust
+struct GameState {
+    // Per player
+    players: [PlayerState; 2],
+
+    // Board
+    rows_remaining: u8,  // starts at 6, decremented by monsoon
+    current_round: u8,   // incremented after both players move
+    turn: Player,        // whose turn it is
+
+    // Commit-reveal
+    move_commitment: Option<Commitment>,
+    guess_commitment: Option<Commitment>,
+
+    // Proximity reveals (cumulative)
+    proximity_history: Vec<ProximityReveal>,
+
+    // Random beacon for proximity square selection
+    random_beacon: RandomBeacon,
+}
+
+struct PlayerState {
+    // Encrypted (stored on Fhenix, hash stored on Miden)
+    piece_positions: [EncryptedPosition; 2],  // encrypted
+    stride_counts: [EncryptedStride; 2],     // encrypted
+
+    // Public
+    pieces_alive: u8,           // 0, 1, or 2
+    pieces_placed: u8,          // 0, 1, or 2
+    visible_pieces: Vec<Position>,  // positions revealed by monsoon/collision
+    auto_pass_count: u8,       // consecutive auto-passes (forfeit at 3)
+}
+
+struct ProximityReveal {
+    square: Position,
+    result: ProximityResult,  // Contact or Clear
+    round: u8,
+}
+
+struct Commitment {
+    hash: [u8; 32],  // commitment hash
+    player: Player,
+    phase: Phase,    // Move or Guess
+}
+```
+
+### Smart Contract Flow
+
+```
+1. Mover: submit_move_commitment(commitment_hash)
+   → Store commitment on Miden
+   → Start guess timer
+
+2. Guesser: submit_guess_commitment(commitment_hash)
+   → Store commitment on Miden
+   → Start reveal timer
+
+3. Mover: reveal_move(piece_id, destination, nonce)
+   → Verify commitment_hash == hash(piece_id, destination, nonce)
+   → Verify ZK proof of move validity
+   → If valid, proceed
+
+4. Guesser: reveal_guess(square, nonce)
+   → Verify commitment_hash == hash(square, nonce)
+
+5. Contract: resolve_outcome()
+   → If guess == destination: move blocked
+   → If guess != destination: move succeeds, +1 stride
+   → If pass: move succeeds, no stride
+   → Check collision: send FHE request to Fhenix
+   → If collision: capture, reveal positions
+   → Check crossing: if destination is far side, win
+   → Check stride: if stride == 5, win (ZK proof)
+   → Check monsoon: if round % 4 == 0, advance monsoon
+   → If monsoon: request proximity reveals from Fhenix
+   → Advance turn
+```
+
+---
+
+## XI. ASYNC PLAY
+
+The game needs to work when players aren't online at the same time.
+
+### Turn-Based, Not Real-Time
+
+One move per session. You commit your move, close the app. Your opponent sees a notification: "Your move — guess or pass." They open the app, guess, and close. The turn resolves. You get a notification: "They guessed wrong. Your piece advances. Your turn."
+
+This is Wordle mechanics applied to fog hunting. One decision per session. Come back when you're ready. The commitment scheme makes simultaneity cryptographic, not temporal. The game doesn't need both players online. It needs both players committed.
+
+### Notification Flow
+
+1. **Mover's turn**: "Your move. Select a piece and destination."
+2. **After commit**: Notification to opponent: "They've committed. Guess or pass."
+3. **After reveal**: Notification to both: Outcome summary. "Move blocked." / "Move succeeds. +1 stride." / "Collision! Your piece captured."
+4. **After monsoon**: Notification to both: "Monsoon advances. Proximity: Contact near D4."
+5. **Game end**: Notification to both: "You win by crossing." / "You lose. Opponent reached stride 5."
+
+---
+
+## XII. PHYSICAL PLAY (Playtest Rules)
+
+You don't need a blockchain to test if the game is fun.
+
+### Materials
+
+- A 7x6 grid drawn on paper
+- Two coins per player (different sizes or colors)
+- Scrap paper for writing moves
+- A pen
+- A phone timer (15 seconds for moves, 10 seconds for guesses)
+- A die or random number generator (for proximity reveals)
+
+### Setup
+
+1. Draw a 7x6 grid. Label columns A-G, rows 1-6.
+2. Each player takes 2 coins and scrap paper.
+3. Set a divider between the two halves (or just trust each other).
+
+### Play
+
+1. **Move phase** (15 seconds): Mover writes their destination square on scrap paper, face down. Place the paper in the center of the board.
+2. **Guess phase** (10 seconds): Guesser either says a square aloud or says "pass."
+3. **Reveal**: Mover flips the paper. Move the coin to the destination, or leave it.
+4. **Track stride**: Tally marks on the side of the board. Forward moves = +1. Wrong guess = +1. Pass = +0. Keep your stride count hidden (write it on a separate scrap).
+5. **Monsoon**: Every 4 rounds, draw an X through the back row on each side. Move any coin on that row forward 1 row and mark it as visible (the opponent can now see where it is). Roll a die to pick a random column for proximity reveal — check if any opponent coin is within 1 square and announce "contact" or "clear."
+
+### What To Track
+
+- Total turns per game
+- Wall-clock time per game
+- How each game ended (crossing / collision / stride / monsoon timeout)
+- Guess hit rate (correct / total guesses)
+- Pass rate (how often did players pass instead of guessing)
+- Stalls (any turns where both players circled without committing forward)
+- Best moment (the turn where both players leaned in)
+- Worst moment (the turn that felt flat or broken)
+
+**5 games minimum.** The first game teaches the rules. Games 2-5 teach the game.
+
+---
+
+## XIII. PSYCHOLOGY — WHY PEOPLE PLAY AGAIN
+
+### Variable Ratio Reinforcement (Act 1)
+
+Blind guesses sometimes hit. The reward is unpredictable. The brain can't pattern-match. It craves another spin. This is the same mechanism that makes slot machines addictive — but here, the variance comes from the fog, not the house. The player is making a decision, not pulling a lever. The decision feels meaningful even when the outcome is partly luck.
+
+### Loss Aversion (Act 2)
+
+The fog is lifting. Your hiding spots are disappearing. Pieces are being displaced and revealed. You feel exposed. The anxiety of being seen is stronger than the joy of hiding. You play to not lose. The monsoon is the countdown — you can see the rows disappearing. The pressure is tangible.
+
+### Near-Miss Effect (Act 2 Transition)
+
+"I had you narrowed to two squares and I guessed wrong." The almost-win is more addictive than the win. The brain replays the moment and constructs a counterfactual where it chose correctly. That counterfactual is the next game. The proximity reveals are engineered to produce near-misses — you get close enough to feel the shape of the opponent's position, but not close enough to be sure.
+
+### Post-Game Conversation (Act 3)
+
+"I saw you at D4 when the fog broke and I couldn't reach you." vs. "I watched you searching and I circled behind you." That's interpersonal. That's the story you tell a friend. That's how games spread. The three-act structure produces a narrative — not just a result. People don't say "I won." They say "I was hunting you and you didn't even know."
+
+### Sunk Cost (Late Game)
+
+"I've committed 8 moves to this piece. I can't stop now." The stride count is visible to you. You see your progress. You feel the investment. You don't want to waste it. You play one more. The stride counter is not just a win condition — it's a retention mechanic. Every forward move is a deposit you don't want to lose.
+
+---
+
+## XIV. EDGE CASES
+
+### Both Pieces Displaced Simultaneously
+
+If the monsoon consumes a row and both of a player's pieces are on it, both are displaced and both become visible. This is a catastrophic information leak — the opponent now knows both positions. This is the penalty for leaving both pieces in the danger zone.
+
+### No Valid Moves
+
+If a piece is on the last remaining row and the monsoon is about to consume it, but the piece is surrounded by its own other piece and the board edge, such that no king-move destination is valid — the piece is displaced forward by the monsoon as normal. Displacement takes priority over movement constraints. The piece is pushed to the same column, one row closer to center. If that row is also consumed, the piece is eliminated (captured by the monsoon).
+
+### Collision Between Visible Pieces
+
+If both pieces are visible (from monsoon displacement), collision is still possible. The mover can deliberately target a visible opponent piece. The opponent can still guess the collision square and block it. Visibility doesn't remove the guess mechanic — it just removes the uncertainty about where the piece is.
+
+### Stride Victory on the Same Turn
+
+If both players reach stride 5 on the same turn (possible if both made forward moves and both opponents guessed wrong), the mover whose turn it is wins. Turn order is the tiebreaker.
+
+### Placement on a Monsoon-Consumed Row
+
+If the monsoon has consumed row 1, a player who hasn't placed a piece yet must place on the new back row (row 2, or whatever is the closest remaining row). The ZK placement proof adjusts for the new home row.
+
+### Auto-Pass Forfeit
+
+If a player auto-passes 3 times consecutively, they forfeit. The other player wins. This prevents griefing through deliberate inactivity. If both players auto-pass 3 times, the game is a draw.
+
+---
+
+## XV. WHAT'S NOT IN THE MVP
+
+These are version 2. Good ideas. Not the skeleton.
+
+| Feature | Why It's V2 |
+|---|---|
+| Piece types (Scout, Ghost) | Variance without the core loop. The core loop is commit-guess-reveal. |
+| Traps and boosts | Pre-game setup tax. The fog already does what traps do. |
+| Double-bluff card | Load-bearing but not load-bearing enough. The one-time escape with information leak is a good V2 addition. |
+| Blighted squares | Polish. Blocked moves scar the board. Nice but not necessary. |
+| More than 2 pieces per player | Tuning, not design. 2 pieces is the prototype. |
+| Spectator mode | Great for streaming. Not for MVP. |
+| Tournaments / ranked play | Needs a player base first. |
+| AI opponent | Possible — the AI commits encrypted moves and guesses based on probability. But the game is about reading a person, not an algorithm. |
+
+**Ship the skeleton. The skeleton is the proof. If the skeleton is fun, everything else is bonus. If the skeleton isn't fun, nothing saves it.**
+
+---
+
+## XVI. ROADMAP
+
+### Phase 0 — Paper Playtest (Week 1)
+
+- [ ] Play 5+ games on paper
+- [ ] Record: turns, time, win condition, guess rate, pass rate, stalls, best/worst moments
+- [ ] Identify which mechanics feel flat and which feel electric
+- [ ] Adjust board size, monsoon schedule, and timer based on data
+- [ ] Finalize rules after playtest data
+
+### Phase 1 — FHE Proof of Concept (Weeks 2-4)
+
+- [ ] Implement FHE collision detection on Fhenix (two encrypted positions → "collision" / "no collision")
+- [ ] Implement FHE proximity detection on Fhenix (encrypted positions + reveal square → "contact" / "clear")
+- [ ] Benchmark: gas cost, latency, proof size
+- [ ] If FHE PoC fails, the game needs a different architecture (fallback: game state in enclave, not pure FHE)
+
+### Phase 2 — ZK Move Proofs on Miden (Weeks 3-5)
+
+- [ ] Implement ZK proof circuit for move validity (king movement, on-board, no self-collision)
+- [ ] Implement ZK proof circuit for stride increment
+- [ ] Implement ZK proof circuit for placement validity (home row)
+- [ ] Benchmark: proof generation time, verification cost
+
+### Phase 3 — Smart Contracts (Weeks 5-8)
+
+- [ ] Game state contract on Miden
+- [ ] Commit-reveal contract
+- [ ] Monsoon scheduling contract
+- [ ] Random beacon integration (for proximity square selection)
+- [ ] Move timer / auto-pass logic
+- [ ] Win condition checks
+- [ ] Fhenix integration (FHE requests from Miden)
+
+### Phase 4 — Client (Weeks 7-10)
+
+- [ ] Board UI (7x6 grid, fog visualization, monsoon animation)
+- [ ] Move commit / guess / reveal UI
+- [ ] Stride counter (visible to owning player only)
+- [ ] Proximity reveal notifications
+- [ ] Async turn notifications
+- [ ] Game lobby / matchmaking
+
+### Phase 5 — Playtest & Iterate (Weeks 10-12)
+
+- [ ] Internal playtest with on-chain game
+- [ ] Public beta
+- [ ] Collect data: game completion rate, return rate, average sessions
+- [ ] Tune fog schedule, monsoon timing, timer values
+- [ ] V2 feature planning based on player feedback
+
+---
+
+## XVII. PLAYTEST DATA (What We Know So Far)
+
+| Data Point | Value |
+|---|---|
+| Games played | 1 |
+| Win condition | Physical crossing |
+| Monsoon tested | No |
+| Move timer used | No (but identified as needed) |
+| Stalls observed | Unknown |
+| Guess hit rate | Unknown |
+| Pass rate | Unknown |
+| Best moment | Unknown |
+| Worst moment | Unknown |
+
+**Status: Proof of concept. Crossing works. Everything else needs data.**
+
+5 more games on paper with the full rules (monsoon, stride, timer, proximity) will answer every open question. Do that before writing a single line of smart contract code.
+
+---
+
+## XVIII. THE THREE SENTENCES
+
+If you can't explain Fathom in three sentences, it's not done:
+
+1. You commit encrypted moves into fog and your opponent guesses where you're going; wrong guesses advance you, right guesses block you.
+2. A monsoon shrinks the board and the fog lifts in fragments, turning blind luck into a hunt.
+3. The game only exists because FHE and ZK make it possible to compute on encrypted state and prove validity without revealing it — the cryptography is the game engine.
+
+---
+
+## XIX. DESIGN PRINCIPLES
+
+1. **The fog is the game.** Every mechanic serves the fog or gets cut.
+2. **The crypto is the engine.** Not a feature. Not a costume. The game cannot function without FHE and ZK.
+3. **The ritual is the tension.** Commit-guess-reveal is the moment. Everything else is setup or aftermath.
+4. **Kill complexity.** If you can remove it and the game still works, it was dead weight.
+5. **Physical first.** If the paper version isn't fun, the on-chain version won't be either.
+6. **Every game ends.** No soft locks. No infinite circling. The monsoon guarantees termination.
+7. **Losing is the hook.** The near-miss, the counterfactual, the "I should have committed earlier" — that's what makes people play again.
+8. **Timer is structure.** Without a clock, the game is a conversation without an end. The move timer is the micro-timer. The monsoon is the macro-timer. Both prevent stalling.
+
+---
+
+*Fathom. Understand after searching. Measure the depth. Sound what is hidden.*
