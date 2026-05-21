@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, isNull, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import {
   db,
   gamesTable,
@@ -61,9 +61,9 @@ router.post("/games", async (req, res): Promise<void> => {
     status: "waiting",
     player1Token: playerToken,
     player1Name: parsed.data.playerName,
+    exposedRows: "[]",
   });
 
-  // Create 2 pieces for player 1
   await db.insert(gamePiecesTable).values([
     { gameId, player: 1, pieceIndex: 0 },
     { gameId, player: 1, pieceIndex: 1 },
@@ -134,13 +134,11 @@ router.post("/games/:id/join", async (req, res): Promise<void> => {
     })
     .where(eq(gamesTable.id, rawId));
 
-  // Create 2 pieces for player 2
   await db.insert(gamePiecesTable).values([
     { gameId: rawId, player: 2, pieceIndex: 0 },
     { gameId: rawId, player: 2, pieceIndex: 1 },
   ]);
 
-  // Emit game_start event
   await db.insert(gameEventsTable).values({
     gameId: rawId,
     seq: 1,
@@ -149,7 +147,7 @@ router.post("/games/:id/join", async (req, res): Promise<void> => {
     data: {
       player1: game.player1Name,
       player2: parsed.data.playerName,
-      message: "Game started! Player 1 moves first.",
+      message: "Game started! Player 1 moves first. Only capture wins.",
     },
   });
 
@@ -203,7 +201,6 @@ router.post("/games/:id/submit-move", async (req, res): Promise<void> => {
     return;
   }
 
-  // Store the move (hidden) and advance phase
   await db
     .update(gamesTable)
     .set({
@@ -263,20 +260,17 @@ router.post("/games/:id/submit-guess", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Not in guess phase — mover has not committed yet" });
     return;
   }
-  // Guesser is the non-mover
   if (playerNum === game.currentTurnPlayer) {
     res.status(403).json({ error: "You are the mover this turn, not the guesser" });
     return;
   }
 
-  // Convert guess row to absolute if not passing
   const guesserNum = playerNum;
   let guessAbsRow: number | null = null;
   if (!parsed.data.pass && parsed.data.row != null) {
     guessAbsRow = perspToAbs(parsed.data.row, guesserNum);
   }
 
-  // Store the guess and immediately resolve
   const gameWithGuess: typeof game = {
     ...game,
     pendingGuessPass: parsed.data.pass,
@@ -293,19 +287,6 @@ router.post("/games/:id/submit-guess", async (req, res): Promise<void> => {
       .update(gamePiecesTable)
       .set(update.changes)
       .where(eq(gamePiecesTable.id, update.id));
-  }
-
-  // Save proximity reveals
-  if (outcome.proximityReveals.length > 0) {
-    await db.insert(proximityRevealsTable).values(
-      outcome.proximityReveals.map(pr => ({
-        gameId: rawId,
-        round: game.round,
-        col: pr.col,
-        row: pr.row,
-        result: pr.result,
-      }))
-    );
   }
 
   // Save events
@@ -351,22 +332,25 @@ router.post("/games/:id/submit-guess", async (req, res): Promise<void> => {
     .set(gameUpdates as any)
     .where(eq(gamesTable.id, rawId));
 
+  let message: string;
+  if (outcome.guessCorrect) {
+    message = "Trap sprung! Opponent's piece captured. You win!";
+  } else if (parsed.data.pass) {
+    message = "Passed. Opponent's move succeeds.";
+  } else {
+    message = "Wrong guess. Opponent slips through.";
+  }
+
   res.json({
     success: true,
-    message: outcome.moveBlocked
-      ? "Correct guess! Move blocked."
-      : parsed.data.pass
-      ? "Passed. Opponent's move succeeds."
-      : "Wrong guess. Opponent's move succeeds.",
+    message,
     outcome: {
-      moveBlocked: outcome.moveBlocked,
       guessCorrect: outcome.guessCorrect,
       guessPassed: outcome.guessPassed,
-      strideGained: outcome.strideGained,
+      pieceCaptured: outcome.pieceCaptured,
       collision: outcome.collision,
       monsoonTriggered: outcome.monsoonTriggered,
-      proximityReveals: outcome.proximityReveals,
-      displacedPieces: outcome.displacedPieces,
+      newExposedRows: outcome.newExposedRows,
       gameOver: outcome.gameOver,
       winner: outcome.winner,
       winCondition: outcome.winCondition,
@@ -398,6 +382,11 @@ router.post("/games/:id/forfeit", async (req, res): Promise<void> => {
   else if (playerToken === game.player2Token) playerNum = 2;
   else {
     res.status(403).json({ error: "Invalid player token" });
+    return;
+  }
+
+  if (game.status !== "active" && game.status !== "waiting") {
+    res.status(400).json({ error: "Game is already finished" });
     return;
   }
 

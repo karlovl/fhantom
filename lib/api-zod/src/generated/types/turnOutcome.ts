@@ -5,19 +5,18 @@
  * Fathom game API
  * OpenAPI spec version: 0.1.0
  */
-import type { ProximityReveal } from './proximityReveal';
-import type { TurnOutcomeDisplacedPiecesItem } from './turnOutcomeDisplacedPiecesItem';
 import type { TurnOutcomeWinCondition } from './turnOutcomeWinCondition';
 
 export interface TurnOutcome {
-  moveBlocked: boolean;
   guessCorrect: boolean;
   guessPassed: boolean;
-  strideGained: boolean;
+  /** True if any piece was captured this turn */
+  pieceCaptured: boolean;
+  /** True if capture happened by collision (mover landed on opponent) */
   collision: boolean;
   monsoonTriggered: boolean;
-  proximityReveals?: ProximityReveal[];
-  displacedPieces?: TurnOutcomeDisplacedPiecesItem[];
+  /** All currently exposed perspective rows after this turn */
+  newExposedRows: number[];
   gameOver: boolean;
   /** @nullable */
   winner: number | null;

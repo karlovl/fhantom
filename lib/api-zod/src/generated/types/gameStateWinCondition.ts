@@ -13,9 +13,6 @@ export type GameStateWinCondition = typeof GameStateWinCondition[keyof typeof Ga
 
 
 export const GameStateWinCondition = {
-  crossing: 'crossing',
-  stride: 'stride',
-  collision: 'collision',
-  monsoon: 'monsoon',
+  capture: 'capture',
   forfeit: 'forfeit',
 } as const;

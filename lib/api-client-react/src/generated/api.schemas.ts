@@ -80,7 +80,7 @@ export interface PieceState {
      */
   row: number | null;
   strideCount: number;
-  /** True if opponent can see this piece */
+  /** True if opponent can currently see this piece */
   isVisible: boolean;
 }
 
@@ -125,10 +125,16 @@ export interface ProximityReveal {
   result: ProximityRevealResult;
 }
 
-export interface MonsoonStatus {
-  rowsRemaining: number;
-  nextMonsoonRound: number;
-  currentRound: number;
+export interface ExposureStatus {
+  /** Perspective rows (1-6) currently exposed and visible to both players */
+  exposedRows: number[];
+  /** Number of monsoons that have occurred (0-3) */
+  monsoonsDone: number;
+  /**
+     * Round after which the next monsoon exposes more rows, null if all done
+     * @nullable
+     */
+  nextExposureRound: number | null;
 }
 
 export type GameStateStatus = typeof GameStateStatus[keyof typeof GameStateStatus];
@@ -156,10 +162,7 @@ export type GameStateWinCondition = typeof GameStateWinCondition[keyof typeof Ga
 
 
 export const GameStateWinCondition = {
-  crossing: 'crossing',
-  stride: 'stride',
-  collision: 'collision',
-  monsoon: 'monsoon',
+  capture: 'capture',
   forfeit: 'forfeit',
 } as const;
 
@@ -182,19 +185,16 @@ export interface GameState {
   currentTurnPlayer: number | null;
   phase: GameStatePhase;
   round: number;
-  rowsRemaining: number;
-  monsoon: MonsoonStatus;
+  /** Perspective rows (1-6) exposed by monsoon — visible to both players */
+  exposedRows: number[];
+  exposure: ExposureStatus;
   yourPieces: PieceState[];
   opponentPieces: OpponentPieceState[];
   proximityHistory: ProximityReveal[];
   /** True if the mover has committed their move this turn */
   moveCommitted: boolean;
-  /** True if you are the current mover */
   isYourTurn: boolean;
-  /**
-     * 1 or 2 if game over, null otherwise
-     * @nullable
-     */
+  /** @nullable */
   winner: number | null;
   /** @nullable */
   winCondition: GameStateWinCondition;
@@ -259,27 +259,20 @@ export type TurnOutcomeWinCondition = typeof TurnOutcomeWinCondition[keyof typeo
 
 
 export const TurnOutcomeWinCondition = {
-  crossing: 'crossing',
-  stride: 'stride',
-  collision: 'collision',
-  monsoon: 'monsoon',
+  capture: 'capture',
   forfeit: 'forfeit',
 } as const;
 
-export type TurnOutcomeDisplacedPiecesItem = {
-  player: number;
-  pieceIndex: number;
-};
-
 export interface TurnOutcome {
-  moveBlocked: boolean;
   guessCorrect: boolean;
   guessPassed: boolean;
-  strideGained: boolean;
+  /** True if any piece was captured this turn */
+  pieceCaptured: boolean;
+  /** True if capture happened by collision (mover landed on opponent) */
   collision: boolean;
   monsoonTriggered: boolean;
-  proximityReveals?: ProximityReveal[];
-  displacedPieces?: TurnOutcomeDisplacedPiecesItem[];
+  /** All currently exposed perspective rows after this turn */
+  newExposedRows: number[];
   gameOver: boolean;
   /** @nullable */
   winner: number | null;
@@ -297,20 +290,16 @@ export type GameEventEventType = typeof GameEventEventType[keyof typeof GameEven
 
 
 export const GameEventEventType = {
-  move_blocked: 'move_blocked',
   move_success: 'move_success',
   guess_correct: 'guess_correct',
   guess_wrong: 'guess_wrong',
   pass: 'pass',
+  capture: 'capture',
   collision: 'collision',
-  crossing: 'crossing',
-  stride_win: 'stride_win',
-  monsoon: 'monsoon',
-  proximity_reveal: 'proximity_reveal',
+  row_exposed: 'row_exposed',
   game_start: 'game_start',
   piece_placed: 'piece_placed',
   forfeit: 'forfeit',
-  displacement: 'displacement',
 } as const;
 
 /**
@@ -327,8 +316,7 @@ export type GameEventData = {
   row?: number | null;
   /** @nullable */
   strideCount?: number | null;
-  /** @nullable */
-  proximityResult?: string | null;
+  exposedRows?: number[];
   /** @nullable */
   message?: string | null;
 };

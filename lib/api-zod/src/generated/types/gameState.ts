@@ -5,10 +5,10 @@
  * Fathom game API
  * OpenAPI spec version: 0.1.0
  */
+import type { ExposureStatus } from './exposureStatus';
 import type { GameStatePhase } from './gameStatePhase';
 import type { GameStateStatus } from './gameStateStatus';
 import type { GameStateWinCondition } from './gameStateWinCondition';
-import type { MonsoonStatus } from './monsoonStatus';
 import type { OpponentPieceState } from './opponentPieceState';
 import type { PieceState } from './pieceState';
 import type { ProximityReveal } from './proximityReveal';
@@ -32,19 +32,16 @@ export interface GameState {
   currentTurnPlayer: number | null;
   phase: GameStatePhase;
   round: number;
-  rowsRemaining: number;
-  monsoon: MonsoonStatus;
+  /** Perspective rows (1-6) exposed by monsoon — visible to both players */
+  exposedRows: number[];
+  exposure: ExposureStatus;
   yourPieces: PieceState[];
   opponentPieces: OpponentPieceState[];
   proximityHistory: ProximityReveal[];
   /** True if the mover has committed their move this turn */
   moveCommitted: boolean;
-  /** True if you are the current mover */
   isYourTurn: boolean;
-  /**
-     * 1 or 2 if game over, null otherwise
-     * @nullable
-     */
+  /** @nullable */
   winner: number | null;
   /** @nullable */
   winCondition: GameStateWinCondition;

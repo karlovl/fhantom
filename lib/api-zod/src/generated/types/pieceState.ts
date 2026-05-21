@@ -22,6 +22,6 @@ export interface PieceState {
      */
   row: number | null;
   strideCount: number;
-  /** True if opponent can see this piece */
+  /** True if opponent can currently see this piece */
   isVisible: boolean;
 }

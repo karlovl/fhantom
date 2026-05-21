@@ -19,15 +19,26 @@ export function homeRowAbs(player: number): number {
   return player === 1 ? 5 : 0;
 }
 
-/** Far side (win destination, absolute) for a player */
-export function farSideAbs(player: number): number {
-  return player === 1 ? 0 : 5;
+/** Parse the exposedRows JSON string from the DB into a number array */
+export function parseExposedRows(json: string): number[] {
+  try { return JSON.parse(json) as number[]; }
+  catch { return []; }
 }
 
-/** Check if an absolute row is active given current rowsRemaining */
-export function isRowActive(absRow: number, rowsRemaining: number): boolean {
-  const consumed = (6 - rowsRemaining) / 2;
-  return absRow >= consumed && absRow <= 5 - consumed;
+/**
+ * Compute which absolute rows are exposed after a given number of monsoons.
+ * Monsoon k exposes the kth row from each end:
+ *   k=1 → [0, 5]
+ *   k=2 → [0, 1, 4, 5]
+ *   k=3 → [0, 1, 2, 3, 4, 5]
+ */
+export function computeExposedRows(monsoonsDone: number): number[] {
+  const exposed: number[] = [];
+  for (let i = 0; i < monsoonsDone; i++) {
+    if (!exposed.includes(i)) exposed.push(i);
+    if (!exposed.includes(5 - i)) exposed.push(5 - i);
+  }
+  return exposed.sort((a, b) => a - b);
 }
 
 /** Check if a move is valid king movement (1 step in any direction) */
@@ -38,12 +49,6 @@ export function isKingMove(
   const dc = Math.abs(toCol - fromCol);
   const dr = Math.abs(toAbsRow - fromAbsRow);
   return dc <= 1 && dr <= 1 && (dc + dr > 0);
-}
-
-/** Check if a move is forward (toward opponent's side) */
-export function isForwardMove(fromAbsRow: number, toAbsRow: number, player: number): boolean {
-  if (player === 1) return toAbsRow < fromAbsRow; // P1 moves toward row 0
-  return toAbsRow > fromAbsRow;                   // P2 moves toward row 5
 }
 
 // ─── Opponent helper ──────────────────────────────────────────────────────────
@@ -75,11 +80,9 @@ export function validateMove(
   if (!piece) return { valid: false, reason: "Piece not found" };
   if (!piece.isAlive) return { valid: false, reason: "Piece is captured" };
 
-  // Board bounds
+  // Board bounds — all 6 rows always active (exposure doesn't remove rows)
   if (destCol < 0 || destCol > 6) return { valid: false, reason: "Column out of bounds" };
-  if (!isRowActive(destAbsRow, game.rowsRemaining)) {
-    return { valid: false, reason: "Row is not active (consumed by monsoon)" };
-  }
+  if (destAbsRow < 0 || destAbsRow > 5) return { valid: false, reason: "Row out of bounds" };
 
   // Self-collision check
   const otherMyPiece = myPieces.find(p => p.pieceIndex !== pieceIndex);
@@ -109,14 +112,12 @@ export function validateMove(
 // ─── Turn resolution ──────────────────────────────────────────────────────────
 
 export interface TurnOutcome {
-  moveBlocked: boolean;
   guessCorrect: boolean;
   guessPassed: boolean;
-  strideGained: boolean;
+  pieceCaptured: boolean;
   collision: boolean;
   monsoonTriggered: boolean;
-  proximityReveals: Array<{ col: number; row: number; result: "contact" | "clear" }>;
-  displacedPieces: Array<{ player: number; pieceIndex: number }>;
+  newExposedRows: number[];
   gameOver: boolean;
   winner: number | null;
   winCondition: string | null;
@@ -139,300 +140,188 @@ export function resolveTurn(
   const guessRow = game.pendingGuessRow;
 
   const moverPieces = allPieces.filter(p => p.player === moverNum);
+  const guesserPieces = allPieces.filter(p => p.player === guesserNum);
   const movingPiece = moverPieces.find(p => p.pieceIndex === pieceIndex)!;
   const isPlacement = !movingPiece.isPlaced;
 
   const events: TurnOutcome["events"] = [];
   const pieceUpdates: TurnOutcome["pieceUpdates"] = [];
 
-  // ── 1. Did the guess match? ──
+  // ── 1. Did the guesser correctly identify the destination? ──
   const guessCorrect = !guessPassed && guessCol === destCol && guessRow === destAbsRow;
-  const moveBlocked = guessCorrect;
 
-  // ── 2. Apply move or block ──
-  if (!moveBlocked) {
-    // Move succeeds: update piece position
-    const fromCol = movingPiece.col;
-    const fromAbsRow = movingPiece.row;
-    const isPlacementNow = isPlacement;
-    const isForward = isPlacementNow
-      ? false
-      : isForwardMove(fromAbsRow!, destAbsRow, moverNum);
+  // ── 2. Always apply the move (piece moves to destination regardless of guess) ──
+  //    If guess correct: piece is captured at destination (trap)
+  //    If guess wrong / pass: piece survives, gains stride
+  const currentExposedRows = parseExposedRows(game.exposedRows);
+  const isExposedDest = currentExposedRows.includes(destAbsRow);
 
-    // Stride gain: +1 if forward move, +1 if opponent guessed wrong (not a pass)
-    const strideFromMove = isForward ? 1 : 0;
-    const strideFromWrongGuess = !guessPassed && !guessCorrect ? 1 : 0;
-    const strideGain = strideFromMove + strideFromWrongGuess;
+  // Stride: +1 per forward move, +1 for surviving a non-pass wrong guess
+  const isForwardMove = isPlacement
+    ? false
+    : (moverNum === 1 ? destAbsRow < movingPiece.row! : destAbsRow > movingPiece.row!);
 
-    const newStride = (movingPiece.strideCount || 0) + strideGain;
+  const strideFromMove = (!guessCorrect && !isPlacement && isForwardMove) ? 1 : 0;
+  const strideFromWrongGuess = (!guessCorrect && !guessPassed && !isPlacement) ? 1 : 0;
+  const newStride = (movingPiece.strideCount || 0) + strideFromMove + strideFromWrongGuess;
 
-    pieceUpdates.push({
-      id: movingPiece.id,
-      changes: {
+  // Move the piece to destination
+  pieceUpdates.push({
+    id: movingPiece.id,
+    changes: {
+      col: destCol,
+      row: destAbsRow,
+      isPlaced: true,
+      strideCount: newStride,
+      // Exposed row means opponent can always see it; also mark visible if captured (cosmetic)
+      isVisible: isExposedDest || guessCorrect,
+    },
+  });
+
+  if (isPlacement) {
+    events.push({
+      eventType: "piece_placed",
+      data: { player: moverNum, pieceIndex, col: destCol, row: destAbsRow },
+    });
+  } else {
+    events.push({
+      eventType: "move_success",
+      data: {
+        player: moverNum,
+        pieceIndex,
         col: destCol,
         row: destAbsRow,
-        isPlaced: true,
         strideCount: newStride,
+        message: guessPassed
+          ? "Opponent passed"
+          : guessCorrect
+          ? "Opponent guessed correctly — trapped!"
+          : "Opponent guessed wrong",
       },
     });
+  }
 
-    if (isPlacementNow) {
-      events.push({
-        eventType: "piece_placed",
-        data: { player: moverNum, pieceIndex, col: destCol, row: destAbsRow },
-      });
-    } else {
-      events.push({
-        eventType: "move_success",
-        data: {
-          player: moverNum,
-          pieceIndex,
-          col: destCol,
-          row: destAbsRow,
-          strideCount: newStride,
-          message: guessPassed ? "Opponent passed" : "Opponent guessed wrong",
-        },
-      });
-    }
-
-    if (!guessPassed) {
-      events.push({ eventType: "guess_wrong", data: { player: guesserNum } });
-    } else {
-      events.push({ eventType: "pass", data: { player: guesserNum } });
-    }
-
-    // ── 3. Check collision: did mover land on opponent's piece? ──
-    const guesserPieces = allPieces.filter(p => p.player === guesserNum);
-    const collidedPiece = guesserPieces.find(
-      p => p.isPlaced && p.isAlive && p.col === destCol && p.row === destAbsRow
-    );
-
-    if (collidedPiece) {
-      pieceUpdates.push({
-        id: collidedPiece.id,
-        changes: { isAlive: false },
-      });
-      // Reveal mover's piece (collision reveals both)
-      pieceUpdates.push({
-        id: movingPiece.id,
-        changes: { isVisible: true },
-      });
-      events.push({
-        eventType: "collision",
-        data: {
-          player: moverNum,
-          pieceIndex,
-          col: destCol,
-          row: destAbsRow,
-          message: `Player ${moverNum} captured Player ${guesserNum}'s piece!`,
-        },
-      });
-    }
-
-    // ── 4. Check crossing win ──
-    if (!isPlacementNow && destAbsRow === farSideAbs(moverNum)) {
-      events.push({
-        eventType: "crossing",
-        data: { player: moverNum, pieceIndex, col: destCol, row: destAbsRow },
-      });
-      return buildOutcome({
-        moveBlocked: false, guessCorrect: false, guessPassed,
-        strideGained: strideGain > 0, collision: !!collidedPiece,
-        monsoonTriggered: false, proximityReveals: [], displacedPieces: [],
-        gameOver: true, winner: moverNum, winCondition: "crossing",
-        events, pieceUpdates, gameUpdates: {},
-      });
-    }
-
-    // ── 5. Check stride win ──
-    const updatedStride = pieceUpdates.find(u => u.id === movingPiece.id)?.changes.strideCount ?? movingPiece.strideCount;
-    if (updatedStride >= 5) {
-      events.push({
-        eventType: "stride_win",
-        data: { player: moverNum, pieceIndex, strideCount: updatedStride },
-      });
-      return buildOutcome({
-        moveBlocked: false, guessCorrect: false, guessPassed,
-        strideGained: strideGain > 0, collision: !!collidedPiece,
-        monsoonTriggered: false, proximityReveals: [], displacedPieces: [],
-        gameOver: true, winner: moverNum, winCondition: "stride",
-        events, pieceUpdates, gameUpdates: {},
-      });
-    }
-
-    // ── 6. Check collision win (opponent lost all pieces) ──
-    const guesserAlivePieces = guesserPieces.filter(p => {
-      if (!p.isAlive) return false;
-      // Check if we just killed it
-      const update = pieceUpdates.find(u => u.id === p.id);
-      if (update?.changes.isAlive === false) return false;
-      return true;
-    });
-    if (guesserAlivePieces.length === 0) {
-      return buildOutcome({
-        moveBlocked: false, guessCorrect: false, guessPassed,
-        strideGained: strideGain > 0, collision: !!collidedPiece,
-        monsoonTriggered: false, proximityReveals: [], displacedPieces: [],
-        gameOver: true, winner: moverNum, winCondition: "collision",
-        events, pieceUpdates, gameUpdates: {},
-      });
-    }
-  } else {
-    // Move blocked
-    events.push({
-      eventType: "move_blocked",
-      data: { player: moverNum, pieceIndex, col: destCol, row: destAbsRow },
+  // ── 3. Guess correct → capture the mover's piece ──
+  if (guessCorrect) {
+    pieceUpdates.push({
+      id: movingPiece.id,
+      changes: { isAlive: false },
     });
     events.push({
       eventType: "guess_correct",
-      data: { player: guesserNum, col: destCol, row: destAbsRow },
-    });
-  }
-
-  // ── 7. Advance turn ──
-  const nextMover = opponent(moverNum);
-  let newRound = game.round;
-  let newRowsRemaining = game.rowsRemaining;
-  const monsoonTriggered = false;
-  const proximityReveals: TurnOutcome["proximityReveals"] = [];
-  const displacedPieces: TurnOutcome["displacedPieces"] = [];
-
-  // Round increments after P2's half-turn (i.e., when we flip back to P1)
-  const roundComplete = nextMover === 1;
-  if (roundComplete) {
-    newRound = game.round + 1;
-  }
-
-  // ── 8. Monsoon check ──
-  const monsoonThresholds = [4, 8, 12];
-  const shouldMonsoon = roundComplete && monsoonThresholds.includes(newRound - 1);
-
-  let monsoonActuallyTriggered = false;
-  if (shouldMonsoon && newRowsRemaining > 0) {
-    monsoonActuallyTriggered = true;
-    newRowsRemaining -= 2;
-
-    events.push({
-      eventType: "monsoon",
       data: {
-        rowsRemaining: newRowsRemaining,
-        message: `Monsoon advances. Board shrinks to ${newRowsRemaining} rows.`,
+        player: guesserNum,
+        col: destCol,
+        row: destAbsRow,
+        message: `Player ${guesserNum} set a trap! Player ${moverNum}'s piece is captured.`,
       },
     });
+    events.push({ eventType: "capture", data: { capturedBy: guesserNum, capturedPlayer: moverNum, pieceIndex } });
 
-    // Displace pieces on consumed rows
-    const consumed = (6 - newRowsRemaining) / 2;
-    const minActiveRow = consumed;
-    const maxActiveRow = 5 - consumed;
+    return buildOutcome({
+      guessCorrect, guessPassed, pieceCaptured: true, collision: false,
+      monsoonTriggered: false, newExposedRows: currentExposedRows,
+      gameOver: true, winner: guesserNum, winCondition: "capture",
+      events, pieceUpdates, gameUpdates: {},
+    });
+  }
 
-    // The rows just consumed are the ones at minActiveRow-1 and maxActiveRow+1
-    const prevMinActive = consumed - 1;
-    const prevMaxActive = 5 - consumed + 1;
+  if (!guessPassed) {
+    events.push({ eventType: "guess_wrong", data: { player: guesserNum } });
+  } else {
+    events.push({ eventType: "pass", data: { player: guesserNum } });
+  }
 
-    const applyPieceUpdates = pieceUpdates.reduce((acc, u) => {
-      acc[u.id] = { ...u.changes };
-      return acc;
-    }, {} as Record<number, Partial<GamePiece>>);
+  // ── 4. Check collision: did the mover land on an opponent's piece? ──
+  const collidedPiece = guesserPieces.find(
+    p => p.isPlaced && p.isAlive && p.col === destCol && p.row === destAbsRow
+  );
+
+  if (collidedPiece) {
+    // Capture opponent's piece; reveal the mover (now known position)
+    pieceUpdates.push({
+      id: collidedPiece.id,
+      changes: { isAlive: false },
+    });
+    pieceUpdates.push({
+      id: movingPiece.id,
+      changes: { isVisible: true },
+    });
+    events.push({
+      eventType: "collision",
+      data: {
+        player: moverNum,
+        pieceIndex,
+        col: destCol,
+        row: destAbsRow,
+        message: `Player ${moverNum} stormed into Player ${guesserNum}'s position — piece captured!`,
+      },
+    });
+    events.push({ eventType: "capture", data: { capturedBy: moverNum, capturedPlayer: guesserNum, pieceIndex: collidedPiece.pieceIndex } });
+
+    return buildOutcome({
+      guessCorrect, guessPassed, pieceCaptured: true, collision: true,
+      monsoonTriggered: false, newExposedRows: currentExposedRows,
+      gameOver: true, winner: moverNum, winCondition: "capture",
+      events, pieceUpdates, gameUpdates: {},
+    });
+  }
+
+  // ── 5. Advance turn ──
+  const nextMover = opponent(moverNum);
+  let newRound = game.round;
+  const roundComplete = nextMover === 1;
+  if (roundComplete) newRound = game.round + 1;
+
+  // ── 6. Monsoon check → expose rows ──
+  const monsoonThresholds = [4, 8, 12];
+  const shouldExpose = roundComplete && monsoonThresholds.includes(newRound - 1);
+  let monsoonActuallyTriggered = false;
+  let newExposedRows = [...currentExposedRows];
+
+  if (shouldExpose) {
+    monsoonActuallyTriggered = true;
+    const monsoonsDone = monsoonThresholds.filter(t => t <= newRound - 1).length;
+    newExposedRows = computeExposedRows(monsoonsDone);
+
+    // Reveal pieces currently sitting on newly-exposed rows
+    const prevExposed = new Set(currentExposedRows);
+    const newlyExposed = newExposedRows.filter(r => !prevExposed.has(r));
 
     for (const piece of allPieces) {
       if (!piece.isPlaced || !piece.isAlive) continue;
-      const currentPieceRow = (applyPieceUpdates[piece.id]?.row ?? piece.row)!;
-
-      // Was this piece on a consumed row?
-      if (currentPieceRow === prevMinActive || currentPieceRow === prevMaxActive) {
-        // Push forward 1 row toward center
-        const newPieceRow = currentPieceRow === prevMinActive
-          ? minActiveRow   // was on top row, push to new min
-          : maxActiveRow;  // was on bottom row, push to new max
-
-        // Reveal the displaced piece
-        pieceUpdates.push({
-          id: piece.id,
-          changes: { row: newPieceRow, isVisible: true },
-        });
-        displacedPieces.push({ player: piece.player, pieceIndex: piece.pieceIndex });
-        events.push({
-          eventType: "displacement",
-          data: {
-            player: piece.player,
-            pieceIndex: piece.pieceIndex,
-            col: piece.col,
-            row: newPieceRow,
-            message: `Piece displaced by monsoon to row ${newPieceRow}`,
-          },
-        });
+      const currentRow = pieceUpdates.find(u => u.id === piece.id)?.changes.row ?? piece.row;
+      if (currentRow != null && newlyExposed.includes(currentRow)) {
+        const existing = pieceUpdates.find(u => u.id === piece.id);
+        if (existing) {
+          existing.changes.isVisible = true;
+        } else {
+          pieceUpdates.push({ id: piece.id, changes: { isVisible: true } });
+        }
       }
     }
 
-    // Proximity reveal: pick a random active square, check if any opponent piece is within 1 square
-    // Do this twice — one for each player's benefit (simplified: one reveal total)
-    if (newRowsRemaining > 0) {
-      const revealResult = generateProximityReveal(allPieces, pieceUpdates, newRowsRemaining);
-      if (revealResult) {
-        proximityReveals.push(revealResult);
-        events.push({
-          eventType: "proximity_reveal",
-          data: {
-            col: revealResult.col,
-            row: revealResult.row,
-            proximityResult: revealResult.result,
-            message: `Proximity reveal at (${String.fromCharCode(65 + revealResult.col)}${revealResult.row + 1}): ${revealResult.result.toUpperCase()}`,
-          },
-        });
-      }
-    }
-
-    // Check monsoon timeout game end
-    if (newRowsRemaining === 0) {
-      // Determine winner by highest stride
-      const allUpdatedPieces = allPieces.map(p => {
-        const updates = pieceUpdates.filter(u => u.id === p.id);
-        let updated = { ...p };
-        for (const u of updates) updated = { ...updated, ...u.changes };
-        return updated;
-      });
-      const p1MaxStride = Math.max(
-        ...allUpdatedPieces.filter(p => p.player === 1 && p.isAlive).map(p => p.strideCount),
-        -1
-      );
-      const p2MaxStride = Math.max(
-        ...allUpdatedPieces.filter(p => p.player === 2 && p.isAlive).map(p => p.strideCount),
-        -1
-      );
-      const p1Alive = allUpdatedPieces.filter(p => p.player === 1 && p.isAlive).length;
-      const p2Alive = allUpdatedPieces.filter(p => p.player === 2 && p.isAlive).length;
-
-      let monsoonWinner: number | null = null;
-      let monsoonCondition = "monsoon";
-      if (p1MaxStride > p2MaxStride) monsoonWinner = 1;
-      else if (p2MaxStride > p1MaxStride) monsoonWinner = 2;
-      else if (p1Alive > p2Alive) monsoonWinner = 1;
-      else if (p2Alive > p1Alive) monsoonWinner = 2;
-      // else draw
-
-      return buildOutcome({
-        moveBlocked, guessCorrect, guessPassed,
-        strideGained: false, collision: false,
-        monsoonTriggered: true, proximityReveals, displacedPieces,
-        gameOver: true, winner: monsoonWinner, winCondition: monsoonCondition,
-        events, pieceUpdates, gameUpdates: { round: newRound, rowsRemaining: newRowsRemaining },
-      });
-    }
+    events.push({
+      eventType: "row_exposed",
+      data: {
+        exposedRows: newExposedRows,
+        newlyExposed,
+        message: `The void closes in. Rows ${newlyExposed.map(r => r + 1).join(" & ")} are now exposed.`,
+      },
+    });
   }
 
   return buildOutcome({
-    moveBlocked, guessCorrect, guessPassed,
-    strideGained: !moveBlocked && !guessPassed && !guessCorrect,
-    collision: false,
+    guessCorrect, guessPassed, pieceCaptured: false, collision: false,
     monsoonTriggered: monsoonActuallyTriggered,
-    proximityReveals, displacedPieces,
+    newExposedRows,
     gameOver: false, winner: null, winCondition: null,
     events, pieceUpdates,
     gameUpdates: {
       currentTurnPlayer: nextMover,
       phase: "commit_move",
       round: newRound,
-      rowsRemaining: newRowsRemaining,
+      exposedRows: JSON.stringify(newExposedRows),
       pendingMovePieceIndex: null,
       pendingMoveCol: null,
       pendingMoveRow: null,
@@ -444,14 +333,12 @@ export function resolveTurn(
 }
 
 function buildOutcome(params: {
-  moveBlocked: boolean;
   guessCorrect: boolean;
   guessPassed: boolean;
-  strideGained: boolean;
+  pieceCaptured: boolean;
   collision: boolean;
   monsoonTriggered: boolean;
-  proximityReveals: TurnOutcome["proximityReveals"];
-  displacedPieces: TurnOutcome["displacedPieces"];
+  newExposedRows: number[];
   gameOver: boolean;
   winner: number | null;
   winCondition: string | null;
@@ -460,36 +347,6 @@ function buildOutcome(params: {
   gameUpdates: Partial<Game>;
 }): TurnOutcome {
   return params;
-}
-
-function generateProximityReveal(
-  allPieces: GamePiece[],
-  pieceUpdates: TurnOutcome["pieceUpdates"],
-  rowsRemaining: number
-): { col: number; row: number; result: "contact" | "clear" } | null {
-  const consumed = (6 - rowsRemaining) / 2;
-  const minRow = consumed;
-  const maxRow = 5 - consumed;
-
-  // Pick a random active square
-  const col = Math.floor(Math.random() * 7);
-  const row = minRow + Math.floor(Math.random() * (maxRow - minRow + 1));
-
-  // Get updated positions
-  const updatedPieces = allPieces.map(p => {
-    const updates = pieceUpdates.filter(u => u.id === p.id);
-    let updated = { ...p };
-    for (const u of updates) updated = { ...updated, ...u.changes };
-    return updated;
-  });
-
-  // Check if any piece is within 1 square (king distance)
-  const hasContact = updatedPieces.some(p => {
-    if (!p.isPlaced || !p.isAlive) return false;
-    return Math.abs((p.col ?? -99) - col) <= 1 && Math.abs((p.row ?? -99) - row) <= 1;
-  });
-
-  return { col, row, result: hasContact ? "contact" : "clear" };
 }
 
 // ─── Build game state response (perspective-aware) ────────────────────────────
@@ -512,8 +369,19 @@ export function buildGameState(
   const isYourTurn = game.status === "active" && yourNumber !== null
     ? (game.phase === "commit_move"
       ? game.currentTurnPlayer === yourNumber
-      : game.currentTurnPlayer !== yourNumber) // commit_guess: guesser's turn
+      : game.currentTurnPlayer !== yourNumber)
     : false;
+
+  const exposedAbsRows = parseExposedRows(game.exposedRows);
+
+  // Compute exposed rows in perspective coordinates for this player
+  const exposedPersRows = yourNumber !== null
+    ? exposedAbsRows.map(r => absToPers(r, yourNumber!))
+    : exposedAbsRows; // spectators get absolute
+
+  // A piece is visible if it's flagged visible OR its row is exposed
+  const isPieceExposed = (p: GamePiece): boolean =>
+    p.isPlaced && p.row != null && exposedAbsRows.includes(p.row);
 
   // Build piece views
   const yourPieces = yourNumber !== null
@@ -524,30 +392,43 @@ export function buildGameState(
         col: p.col ?? null,
         row: p.isPlaced && p.row != null ? absToPers(p.row, yourNumber!) : null,
         strideCount: p.strideCount,
-        isVisible: p.isVisible,
+        // isVisible means opponent can see this piece
+        isVisible: p.isVisible || isPieceExposed(p),
       }))
     : [];
 
+  const opponentNum = yourNumber !== null ? opponent(yourNumber) : null;
   const opponentPieces = yourNumber !== null
     ? allPieces
-        .filter(p => p.player === opponent(yourNumber!))
-        .map(p => ({
-          index: p.pieceIndex,
-          isPlaced: p.isPlaced,
-          isAlive: p.isAlive,
-          isVisible: p.isVisible,
-          col: p.isVisible && p.col != null ? p.col : null,
-          row: p.isVisible && p.row != null ? absToPers(p.row, yourNumber!) : null,
-        }))
+        .filter(p => p.player === opponentNum!)
+        .map(p => {
+          const visible = p.isVisible || isPieceExposed(p);
+          return {
+            index: p.pieceIndex,
+            isPlaced: p.isPlaced,
+            isAlive: p.isAlive,
+            isVisible: visible,
+            col: visible && p.col != null ? p.col : null,
+            row: visible && p.row != null ? absToPers(p.row, yourNumber!) : null,
+          };
+        })
     : [];
 
-  // Proximity history: convert rows to absolute (as stored)
+  // Proximity history in absolute coords (for the frontend to render)
   const proximity = proximityHistory.map(pr => ({
     round: pr.round,
     col: pr.col,
     row: pr.row,
     result: pr.result as "contact" | "clear",
   }));
+
+  // Monsoon / exposure schedule
+  const monsoonsDone = [4, 8, 12].filter(t => t <= game.round - 1).length;
+  const nextExposureRound =
+    game.round <= 4 ? 4
+    : game.round <= 8 ? 8
+    : game.round <= 12 ? 12
+    : null;
 
   return {
     id: game.id,
@@ -558,11 +439,11 @@ export function buildGameState(
     currentTurnPlayer: game.currentTurnPlayer,
     phase: game.phase as "commit_move" | "commit_guess" | "finished",
     round: game.round,
-    rowsRemaining: game.rowsRemaining,
-    monsoon: {
-      rowsRemaining: game.rowsRemaining,
-      nextMonsoonRound: game.round <= 4 ? 4 : game.round <= 8 ? 8 : 12,
-      currentRound: game.round,
+    exposedRows: exposedPersRows,
+    exposure: {
+      exposedRows: exposedPersRows,
+      monsoonsDone,
+      nextExposureRound,
     },
     yourPieces,
     opponentPieces,

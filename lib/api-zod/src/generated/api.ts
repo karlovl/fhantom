@@ -61,11 +61,11 @@ export const GetGameResponse = zod.object({
   "currentTurnPlayer": zod.number().nullable().describe('1 or 2, whose turn to move'),
   "phase": zod.enum(['commit_move', 'commit_guess', 'finished']),
   "round": zod.number(),
-  "rowsRemaining": zod.number(),
-  "monsoon": zod.object({
-  "rowsRemaining": zod.number(),
-  "nextMonsoonRound": zod.number(),
-  "currentRound": zod.number()
+  "exposedRows": zod.array(zod.number()).describe('Perspective rows (1-6) exposed by monsoon — visible to both players'),
+  "exposure": zod.object({
+  "exposedRows": zod.array(zod.number()).describe('Perspective rows (1-6) currently exposed and visible to both players'),
+  "monsoonsDone": zod.number().describe('Number of monsoons that have occurred (0-3)'),
+  "nextExposureRound": zod.number().nullable().describe('Round after which the next monsoon exposes more rows, null if all done')
 }),
   "yourPieces": zod.array(zod.object({
   "index": zod.union([zod.literal(0),zod.literal(1)]),
@@ -74,7 +74,7 @@ export const GetGameResponse = zod.object({
   "col": zod.number().nullable().describe('Column 0-6 (A-G), null if not placed'),
   "row": zod.number().nullable().describe('Row 1-6 from your own perspective, null if not placed'),
   "strideCount": zod.number(),
-  "isVisible": zod.boolean().describe('True if opponent can see this piece')
+  "isVisible": zod.boolean().describe('True if opponent can currently see this piece')
 })),
   "opponentPieces": zod.array(zod.object({
   "index": zod.union([zod.literal(0),zod.literal(1)]),
@@ -91,9 +91,9 @@ export const GetGameResponse = zod.object({
   "result": zod.enum(['contact', 'clear'])
 })),
   "moveCommitted": zod.boolean().describe('True if the mover has committed their move this turn'),
-  "isYourTurn": zod.boolean().describe('True if you are the current mover'),
-  "winner": zod.number().nullable().describe('1 or 2 if game over, null otherwise'),
-  "winCondition": zod.union([zod.literal('crossing'),zod.literal('stride'),zod.literal('collision'),zod.literal('monsoon'),zod.literal('forfeit'),zod.literal(null)]).nullable()
+  "isYourTurn": zod.boolean(),
+  "winner": zod.number().nullable(),
+  "winCondition": zod.union([zod.literal('capture'),zod.literal('forfeit'),zod.literal(null)]).nullable()
 })
 
 
@@ -178,25 +178,15 @@ export const SubmitGuessResponse = zod.object({
   "success": zod.boolean(),
   "message": zod.string(),
   "outcome": zod.object({
-  "moveBlocked": zod.boolean(),
   "guessCorrect": zod.boolean(),
   "guessPassed": zod.boolean(),
-  "strideGained": zod.boolean(),
-  "collision": zod.boolean(),
+  "pieceCaptured": zod.boolean().describe('True if any piece was captured this turn'),
+  "collision": zod.boolean().describe('True if capture happened by collision (mover landed on opponent)'),
   "monsoonTriggered": zod.boolean(),
-  "proximityReveals": zod.array(zod.object({
-  "round": zod.number(),
-  "col": zod.number(),
-  "row": zod.number().describe('Row in absolute coordinates (0-5)'),
-  "result": zod.enum(['contact', 'clear'])
-})).optional(),
-  "displacedPieces": zod.array(zod.object({
-  "player": zod.number(),
-  "pieceIndex": zod.number()
-})).optional(),
+  "newExposedRows": zod.array(zod.number()).describe('All currently exposed perspective rows after this turn'),
   "gameOver": zod.boolean(),
   "winner": zod.number().nullable(),
-  "winCondition": zod.union([zod.literal('crossing'),zod.literal('stride'),zod.literal('collision'),zod.literal('monsoon'),zod.literal('forfeit'),zod.literal(null)]).nullable()
+  "winCondition": zod.union([zod.literal('capture'),zod.literal('forfeit'),zod.literal(null)]).nullable()
 })
 })
 
@@ -219,7 +209,7 @@ export const ForfeitGameResponse = zod.object({
 
 
 /**
- * @summary Get event log for this game (perspective-aware)
+ * @summary Get event log for this game
  */
 export const GetGameEventsParams = zod.object({
   "id": zod.coerce.string()
@@ -232,7 +222,7 @@ export const GetGameEventsHeader = zod.object({
 export const GetGameEventsResponseItem = zod.object({
   "seq": zod.number(),
   "round": zod.number(),
-  "eventType": zod.enum(['move_blocked', 'move_success', 'guess_correct', 'guess_wrong', 'pass', 'collision', 'crossing', 'stride_win', 'monsoon', 'proximity_reveal', 'game_start', 'piece_placed', 'forfeit', 'displacement']),
+  "eventType": zod.enum(['move_success', 'guess_correct', 'guess_wrong', 'pass', 'capture', 'collision', 'row_exposed', 'game_start', 'piece_placed', 'forfeit']),
   "timestamp": zod.string(),
   "data": zod.object({
   "player": zod.number().nullish(),
@@ -240,7 +230,7 @@ export const GetGameEventsResponseItem = zod.object({
   "col": zod.number().nullish(),
   "row": zod.number().nullish(),
   "strideCount": zod.number().nullish(),
-  "proximityResult": zod.string().nullish(),
+  "exposedRows": zod.array(zod.number()).optional(),
   "message": zod.string().nullish()
 }).describe('Event-specific data')
 })

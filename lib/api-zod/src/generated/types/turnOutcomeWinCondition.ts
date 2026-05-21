@@ -13,9 +13,6 @@ export type TurnOutcomeWinCondition = typeof TurnOutcomeWinCondition[keyof typeo
 
 
 export const TurnOutcomeWinCondition = {
-  crossing: 'crossing',
-  stride: 'stride',
-  collision: 'collision',
-  monsoon: 'monsoon',
+  capture: 'capture',
   forfeit: 'forfeit',
 } as const;

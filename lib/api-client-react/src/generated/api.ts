@@ -643,7 +643,7 @@ export const getGetGameEventsUrl = (id: string,) => {
 }
 
 /**
- * @summary Get event log for this game (perspective-aware)
+ * @summary Get event log for this game
  */
 export const getGameEvents = async (id: string, options?: RequestInit): Promise<GameEvent[]> => {
 
@@ -690,7 +690,7 @@ export type GetGameEventsQueryError = ErrorType<void>
 
 
 /**
- * @summary Get event log for this game (perspective-aware)
+ * @summary Get event log for this game
  */
 
 export function useGetGameEvents<TData = Awaited<ReturnType<typeof getGameEvents>>, TError = ErrorType<void>>(

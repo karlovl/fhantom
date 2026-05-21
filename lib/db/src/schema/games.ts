@@ -12,7 +12,8 @@ export const gamesTable = pgTable("games", {
   currentTurnPlayer: integer("current_turn_player").notNull().default(1),
   phase: text("phase").notNull().default("commit_move"),
   round: integer("round").notNull().default(1),
-  rowsRemaining: integer("rows_remaining").notNull().default(6),
+  // exposedRows: JSON array of absolute row indices (0-5) that are exposed by monsoon
+  exposedRows: text("exposed_rows").notNull().default("[]"),
   winner: integer("winner"),
   winCondition: text("win_condition"),
   pendingMovePieceIndex: integer("pending_move_piece_index"),

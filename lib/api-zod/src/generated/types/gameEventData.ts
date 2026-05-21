@@ -20,8 +20,7 @@ export type GameEventData = {
   row?: number | null;
   /** @nullable */
   strideCount?: number | null;
-  /** @nullable */
-  proximityResult?: string | null;
+  exposedRows?: number[];
   /** @nullable */
   message?: string | null;
 };

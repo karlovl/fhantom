@@ -219,7 +219,7 @@ paths:
     get:
       operationId: getGameEvents
       tags: [games]
-      summary: Get event log for this game (perspective-aware)
+      summary: Get event log for this game
       parameters:
         - name: id
           in: path
@@ -345,7 +345,7 @@ components:
           type: integer
         isVisible:
           type: boolean
-          description: True if opponent can see this piece
+          description: True if opponent can currently see this piece
 
     OpponentPieceState:
       type: object
@@ -382,20 +382,25 @@ components:
           type: string
           enum: [contact, clear]
 
-    MonsoonStatus:
+    ExposureStatus:
       type: object
-      required: [rowsRemaining, nextMonsoonRound, currentRound]
+      required: [exposedRows, monsoonsDone, nextExposureRound]
       properties:
-        rowsRemaining:
+        exposedRows:
+          type: array
+          items:
+            type: integer
+          description: Perspective rows (1-6) currently exposed and visible to both players
+        monsoonsDone:
           type: integer
-        nextMonsoonRound:
-          type: integer
-        currentRound:
-          type: integer
+          description: Number of monsoons that have occurred (0-3)
+        nextExposureRound:
+          type: ["integer", "null"]
+          description: Round after which the next monsoon exposes more rows, null if all done
 
     GameState:
       type: object
-      required: [id, status, yourNumber, yourName, opponentName, currentTurnPlayer, phase, round, rowsRemaining, monsoon, yourPieces, opponentPieces, proximityHistory, moveCommitted, isYourTurn, winner, winCondition]
+      required: [id, status, yourNumber, yourName, opponentName, currentTurnPlayer, phase, round, exposedRows, exposure, yourPieces, opponentPieces, proximityHistory, moveCommitted, isYourTurn, winner, winCondition]
       properties:
         id:
           type: string
@@ -417,10 +422,13 @@ components:
           enum: [commit_move, commit_guess, finished]
         round:
           type: integer
-        rowsRemaining:
-          type: integer
-        monsoon:
-          $ref: "#/components/schemas/MonsoonStatus"
+        exposedRows:
+          type: array
+          items:
+            type: integer
+          description: Perspective rows (1-6) exposed by monsoon — visible to both players
+        exposure:
+          $ref: "#/components/schemas/ExposureStatus"
         yourPieces:
           type: array
           items:
@@ -438,13 +446,11 @@ components:
           description: True if the mover has committed their move this turn
         isYourTurn:
           type: boolean
-          description: True if you are the current mover
         winner:
           type: ["integer", "null"]
-          description: 1 or 2 if game over, null otherwise
         winCondition:
           type: ["string", "null"]
-          enum: [crossing, stride, collision, monsoon, forfeit, null]
+          enum: [capture, forfeit, null]
 
     MoveInput:
       type: object
@@ -505,41 +511,32 @@ components:
 
     TurnOutcome:
       type: object
-      required: [moveBlocked, guessCorrect, guessPassed, strideGained, collision, monsoonTriggered, gameOver, winner, winCondition]
+      required: [guessCorrect, guessPassed, pieceCaptured, collision, monsoonTriggered, newExposedRows, gameOver, winner, winCondition]
       properties:
-        moveBlocked:
-          type: boolean
         guessCorrect:
           type: boolean
         guessPassed:
           type: boolean
-        strideGained:
+        pieceCaptured:
           type: boolean
+          description: True if any piece was captured this turn
         collision:
           type: boolean
+          description: True if capture happened by collision (mover landed on opponent)
         monsoonTriggered:
           type: boolean
-        proximityReveals:
+        newExposedRows:
           type: array
           items:
-            $ref: "#/components/schemas/ProximityReveal"
-        displacedPieces:
-          type: array
-          items:
-            type: object
-            required: [player, pieceIndex]
-            properties:
-              player:
-                type: integer
-              pieceIndex:
-                type: integer
+            type: integer
+          description: All currently exposed perspective rows after this turn
         gameOver:
           type: boolean
         winner:
           type: ["integer", "null"]
         winCondition:
           type: ["string", "null"]
-          enum: [crossing, stride, collision, monsoon, forfeit, null]
+          enum: [capture, forfeit, null]
 
     GameEvent:
       type: object
@@ -551,7 +548,7 @@ components:
           type: integer
         eventType:
           type: string
-          enum: [move_blocked, move_success, guess_correct, guess_wrong, pass, collision, crossing, stride_win, monsoon, proximity_reveal, game_start, piece_placed, forfeit, displacement]
+          enum: [move_success, guess_correct, guess_wrong, pass, capture, collision, row_exposed, game_start, piece_placed, forfeit]
         timestamp:
           type: string
         data:
@@ -568,7 +565,9 @@ components:
               type: ["integer", "null"]
             strideCount:
               type: ["integer", "null"]
-            proximityResult:
-              type: ["string", "null"]
+            exposedRows:
+              type: array
+              items:
+                type: integer
             message:
               type: ["string", "null"]

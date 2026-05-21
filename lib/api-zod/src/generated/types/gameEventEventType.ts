@@ -10,18 +10,14 @@ export type GameEventEventType = typeof GameEventEventType[keyof typeof GameEven
 
 
 export const GameEventEventType = {
-  move_blocked: 'move_blocked',
   move_success: 'move_success',
   guess_correct: 'guess_correct',
   guess_wrong: 'guess_wrong',
   pass: 'pass',
+  capture: 'capture',
   collision: 'collision',
-  crossing: 'crossing',
-  stride_win: 'stride_win',
-  monsoon: 'monsoon',
-  proximity_reveal: 'proximity_reveal',
+  row_exposed: 'row_exposed',
   game_start: 'game_start',
   piece_placed: 'piece_placed',
   forfeit: 'forfeit',
-  displacement: 'displacement',
 } as const;

@@ -8,6 +8,7 @@
 
 export * from './actionResult';
 export * from './createGameInput';
+export * from './exposureStatus';
 export * from './gameEvent';
 export * from './gameEventData';
 export * from './gameEventEventType';
@@ -22,7 +23,6 @@ export * from './gameSummaryStatus';
 export * from './guessInput';
 export * from './healthStatus';
 export * from './joinGameInput';
-export * from './monsoonStatus';
 export * from './moveInput';
 export * from './moveInputPieceIndex';
 export * from './opponentPieceState';
@@ -32,6 +32,5 @@ export * from './pieceStateIndex';
 export * from './proximityReveal';
 export * from './proximityRevealResult';
 export * from './turnOutcome';
-export * from './turnOutcomeDisplacedPiecesItem';
 export * from './turnOutcomeWinCondition';
 export * from './turnResult';
