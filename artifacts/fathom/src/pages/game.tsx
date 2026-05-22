@@ -44,11 +44,16 @@ export default function Game() {
   const [selectedPieceIndex, setSelectedPieceIndex] = useState<number | null>(null);
   const [selectedMoveSquare, setSelectedMoveSquare] = useState<{ col: number; row: number } | null>(null);
   const [selectedGuessSquare, setSelectedGuessSquare] = useState<{ col: number; row: number } | null>(null);
+  // Lock controls immediately on submit to prevent double-submission during refetch window
+  const [moveSubmitted, setMoveSubmitted] = useState(false);
+  const [guessSubmitted, setGuessSubmitted] = useState(false);
 
   useEffect(() => {
     setSelectedPieceIndex(null);
     setSelectedMoveSquare(null);
     setSelectedGuessSquare(null);
+    setMoveSubmitted(false);
+    setGuessSubmitted(false);
   }, [game?.phase, game?.round]);
 
   if (isError) {
@@ -68,10 +73,12 @@ export default function Game() {
     );
   }
 
-  const isMover = game.currentTurnPlayer === game.yourNumber;
-  const isGuesser = game.currentTurnPlayer !== null && game.currentTurnPlayer !== game.yourNumber;
-  const canMove = isMover && game.phase === "commit_move" && !game.moveCommitted;
-  const canGuess = isGuesser && game.phase === "commit_guess";
+  const isMover = game.yourNumber !== null && game.currentTurnPlayer === game.yourNumber;
+  const isGuesser = game.yourNumber !== null && game.currentTurnPlayer !== null && game.currentTurnPlayer !== game.yourNumber;
+  // moveSubmitted/guessSubmitted lock controls immediately after submit while refetch is in-flight,
+  // preventing the double-submission race that makes the guesser appear to "miss their turn"
+  const canMove = isMover && game.phase === "commit_move" && !game.moveCommitted && !moveSubmitted;
+  const canGuess = isGuesser && game.phase === "commit_guess" && !guessSubmitted;
 
   const exposedRows: number[] = game.exposedRows ?? [];
 
@@ -97,6 +104,7 @@ export default function Game() {
 
   const handleConfirmMove = () => {
     if (selectedPieceIndex === null || !selectedMoveSquare) return;
+    setMoveSubmitted(true); // lock immediately — prevent double-submission during refetch window
     submitMove.mutate(
       { id: gameId!, data: { pieceIndex: selectedPieceIndex as MoveInputPieceIndex, col: selectedMoveSquare.col, row: selectedMoveSquare.row } },
       {
@@ -104,13 +112,17 @@ export default function Game() {
           toast({ title: "Move committed to the void" });
           queryClient.invalidateQueries({ queryKey: getGetGameQueryKey(gameId!) });
         },
-        onError: () => toast({ title: "Move blocked", variant: "destructive" }),
+        onError: () => {
+          setMoveSubmitted(false); // unlock on error so player can retry
+          toast({ title: "Move blocked", variant: "destructive" });
+        },
       }
     );
   };
 
   const handleConfirmGuess = () => {
     if (!selectedGuessSquare) return;
+    setGuessSubmitted(true); // lock immediately
     submitGuess.mutate(
       { id: gameId!, data: { pass: false, col: selectedGuessSquare.col, row: selectedGuessSquare.row } },
       {
@@ -124,12 +136,16 @@ export default function Game() {
           queryClient.invalidateQueries({ queryKey: getGetGameQueryKey(gameId!) });
           queryClient.invalidateQueries({ queryKey: getGetGameEventsQueryKey(gameId!) });
         },
-        onError: () => toast({ title: "Guess failed", variant: "destructive" }),
+        onError: () => {
+          setGuessSubmitted(false); // unlock on error
+          toast({ title: "Guess failed", variant: "destructive" });
+        },
       }
     );
   };
 
   const handlePassGuess = () => {
+    setGuessSubmitted(true); // lock immediately
     submitGuess.mutate(
       { id: gameId!, data: { pass: true } },
       {
@@ -137,6 +153,10 @@ export default function Game() {
           toast({ title: "Turn passed" });
           queryClient.invalidateQueries({ queryKey: getGetGameQueryKey(gameId!) });
           queryClient.invalidateQueries({ queryKey: getGetGameEventsQueryKey(gameId!) });
+        },
+        onError: () => {
+          setGuessSubmitted(false);
+          toast({ title: "Pass failed", variant: "destructive" });
         },
       }
     );
