@@ -115,12 +115,12 @@ export default function Game() {
       { id: gameId!, data: { pass: false, col: selectedGuessSquare.col, row: selectedGuessSquare.row } },
       {
         onSuccess: (data) => {
-          const msg = data.outcome.pieceCaptured
-            ? data.outcome.guessCorrect
-              ? "Trap sprung — piece captured!"
-              : "Collision — piece captured!"
+          const captured = data.outcome.pieceCaptured;
+          const correct = data.outcome.guessCorrect;
+          const msg = captured
+            ? correct ? "Trap sprung — piece captured!" : "Collision — piece captured!"
             : "Wrong — they slipped through";
-          toast({ title: msg, variant: data.outcome.pieceCaptured ? "default" : "default" });
+          toast({ title: msg, variant: captured ? "default" : "destructive" });
           queryClient.invalidateQueries({ queryKey: getGetGameQueryKey(gameId!) });
           queryClient.invalidateQueries({ queryKey: getGetGameEventsQueryKey(gameId!) });
         },
@@ -191,6 +191,47 @@ export default function Game() {
           </div>
         </div>
 
+        {/* Invite panel — shown while waiting for P2 to join */}
+        {game.status === "waiting" && (
+          <div className="w-full max-w-2xl p-4 bg-card border border-primary/30 rounded-lg space-y-2">
+            <div className="text-xs font-mono text-muted-foreground uppercase tracking-widest">Invite your opponent</div>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-xs font-mono text-primary bg-background border border-border rounded px-3 py-2 truncate">
+                {gameId}
+              </code>
+              <Button
+                variant="outline"
+                size="sm"
+                className="font-mono text-xs shrink-0"
+                onClick={() => {
+                  navigator.clipboard.writeText(gameId ?? "").then(() =>
+                    toast({ title: "Game ID copied" })
+                  );
+                }}
+              >
+                Copy ID
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="font-mono text-xs shrink-0"
+                onClick={() => {
+                  const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+                  const url = `${window.location.origin}${base}/game/${gameId}`;
+                  navigator.clipboard.writeText(url).then(() =>
+                    toast({ title: "Invite link copied" })
+                  );
+                }}
+              >
+                Copy Link
+              </Button>
+            </div>
+            <div className="text-[10px] font-mono text-muted-foreground">
+              Share this ID (or the "Copy Link" URL) so your opponent can join from the lobby.
+            </div>
+          </div>
+        )}
+
         {/* Opponent label */}
         <div className="w-full max-w-2xl text-center text-xs font-mono text-muted-foreground uppercase tracking-widest">
           {game.opponentName ?? "Opponent"} ▲
@@ -247,7 +288,6 @@ export default function Game() {
                         onClick={() => handleSquareClick(col, row)}
                         className={[
                           "aspect-square border flex items-center justify-center relative transition-all duration-300",
-                          // Exposed rows glow amber/orange — danger zone
                           isExposed
                             ? "bg-amber-950/40 border-amber-600/60 shadow-[inset_0_0_8px_rgba(217,119,6,0.15)]"
                             : "bg-card border-white/10 hover:border-primary/40",
@@ -255,7 +295,10 @@ export default function Game() {
                             ? "!bg-primary/20 !border-primary shadow-[0_0_15px_rgba(0,255,255,0.3)]"
                             : "",
                           isSelectedPiece ? "!border-primary shadow-[0_0_15px_rgba(0,255,255,0.5)]" : "",
-                          (canMove || canGuess) ? "cursor-pointer" : "cursor-default",
+                          // Pointer only when the click will actually do something
+                          (isPossibleMove || isGuessDest || (canGuess && !isGuessDest))
+                            ? "cursor-pointer"
+                            : "cursor-default",
                         ].join(" ")}
                       >
                         {/* Possible move dot */}
@@ -283,7 +326,7 @@ export default function Game() {
                             ].join(" ")}
                             title={yourPiece.isVisible ? "EXPOSED — opponent can see you" : "Hidden"}
                           >
-                            {yourPiece.strideCount}
+                            {yourPiece.strideCount > 0 ? yourPiece.strideCount : "◆"}
                           </button>
                         )}
 
@@ -339,11 +382,13 @@ export default function Game() {
                     </Button>
                   ))}
                 </div>
-                {selectedMoveSquare && (
-                  <div className="text-xs font-mono text-muted-foreground flex-1">
-                    → {COL_LABELS[selectedMoveSquare.col]}{selectedMoveSquare.row}
-                  </div>
-                )}
+                <div className="text-xs font-mono text-muted-foreground flex-1">
+                  {selectedPieceIndex === null
+                    ? "← Select a piece first"
+                    : selectedMoveSquare
+                    ? `→ ${COL_LABELS[selectedMoveSquare.col]}${selectedMoveSquare.row}`
+                    : "Click a highlighted square"}
+                </div>
                 <Button
                   onClick={handleConfirmMove}
                   disabled={!selectedMoveSquare || submitMove.isPending}
@@ -411,8 +456,14 @@ export default function Game() {
             </div>
             {nextExposureRound !== null ? (
               <div className="text-center">
-                <div className="text-2xl font-mono text-amber-400">{nextExposureRound - game.round}</div>
-                <div className="text-[10px] text-muted-foreground font-mono uppercase">rounds until exposure</div>
+                {nextExposureRound - game.round <= 0 ? (
+                  <div className="text-xs font-mono text-amber-300 uppercase tracking-wide">Triggering this round!</div>
+                ) : (
+                  <>
+                    <div className="text-2xl font-mono text-amber-400">{nextExposureRound - game.round}</div>
+                    <div className="text-[10px] text-muted-foreground font-mono uppercase">rounds until exposure</div>
+                  </>
+                )}
               </div>
             ) : (
               <div className="text-center text-xs font-mono text-amber-400">All rows exposed</div>

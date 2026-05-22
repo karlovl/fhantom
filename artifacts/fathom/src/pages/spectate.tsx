@@ -150,7 +150,7 @@ export default function Spectate() {
                             className="w-4/5 h-4/5 rounded-sm bg-primary/80 border border-primary flex items-center justify-center font-mono font-bold text-xs text-primary-foreground shadow-[0_0_10px_rgba(0,255,255,0.4)]"
                             title={`${p1Name} piece ${p1Piece.index + 1} · stride ${p1Piece.strideCount}`}
                           >
-                            {p1Piece.strideCount}
+                            {p1Piece.strideCount > 0 ? p1Piece.strideCount : "◆"}
                           </div>
                         )}
 
@@ -264,8 +264,14 @@ export default function Spectate() {
             </div>
             {nextExposureRound !== null ? (
               <div className="text-center">
-                <div className="text-xl font-mono text-amber-400">{nextExposureRound - game.round}</div>
-                <div className="text-[10px] text-muted-foreground font-mono uppercase">rounds until exposure</div>
+                {nextExposureRound - game.round <= 0 ? (
+                  <div className="text-xs font-mono text-amber-300 uppercase tracking-wide">Triggering this round!</div>
+                ) : (
+                  <>
+                    <div className="text-xl font-mono text-amber-400">{nextExposureRound - game.round}</div>
+                    <div className="text-[10px] text-muted-foreground font-mono uppercase">rounds until exposure</div>
+                  </>
+                )}
               </div>
             ) : (
               <div className="text-xs font-mono text-amber-400 text-center">All rows lit</div>

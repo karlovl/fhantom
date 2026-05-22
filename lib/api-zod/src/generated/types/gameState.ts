@@ -42,7 +42,7 @@ export interface GameState {
   moveCommitted: boolean;
   isYourTurn: boolean;
   /** True when viewing in fog-free spectator mode (all pieces revealed) */
-  spectating?: boolean;
+  spectating: boolean;
   /** @nullable */
   winner: number | null;
   /** @nullable */

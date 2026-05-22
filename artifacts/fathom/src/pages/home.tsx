@@ -10,7 +10,9 @@ export default function Home() {
   const { toast } = useToast();
   const createGame = useCreateGame();
   const joinGame = useJoinGame();
-  const { data: games } = useListGames({ query: { queryKey: getListGamesQueryKey() } });
+  const { data: games } = useListGames({
+    query: { queryKey: getListGamesQueryKey(), refetchInterval: 3000 },
+  });
 
   const [createName, setCreateName] = useState("");
   const [joinName, setJoinName] = useState("");
@@ -27,26 +29,23 @@ export default function Home() {
         localStorage.setItem(`fathom-name-${res.gameId}`, res.playerName);
         setLocation(`/game/${res.gameId}`);
       },
-      onError: () => {
-        toast({ title: "Failed to create game", variant: "destructive" });
-      }
+      onError: () => toast({ title: "Failed to create game", variant: "destructive" }),
     });
   };
 
   const handleJoin = (gameId: string, name: string) => {
-    if (!name.trim()) {
-      toast({ title: "Name required", variant: "destructive" });
+    const trimmed = name.trim();
+    if (!trimmed) {
+      toast({ title: "Enter your name first", variant: "destructive" });
       return;
     }
-    joinGame.mutate({ id: gameId, data: { playerName: name } }, {
+    joinGame.mutate({ id: gameId, data: { playerName: trimmed } }, {
       onSuccess: (res) => {
         localStorage.setItem(`fathom-token-${res.gameId}`, res.playerToken);
         localStorage.setItem(`fathom-name-${res.gameId}`, res.playerName);
         setLocation(`/game/${res.gameId}`);
       },
-      onError: () => {
-        toast({ title: "Failed to join game", variant: "destructive" });
-      }
+      onError: () => toast({ title: "Failed to join game", variant: "destructive" }),
     });
   };
 
@@ -59,19 +58,21 @@ export default function Home() {
         </div>
 
         <div className="space-y-8 bg-card border border-card-border p-8 rounded-lg shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary to-transparent opacity-50"></div>
-          
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary to-transparent opacity-50" />
+
+          {/* Create */}
           <div className="space-y-4">
             <h2 className="text-xl font-semibold uppercase tracking-wider text-foreground">Create Game</h2>
             <div className="flex gap-2">
-              <Input 
-                placeholder="Your Name" 
-                value={createName} 
-                onChange={(e) => setCreateName(e.target.value)} 
+              <Input
+                placeholder="Your Name"
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleCreate()}
                 className="bg-muted border-muted-border font-mono text-sm"
               />
-              <Button 
-                onClick={handleCreate} 
+              <Button
+                onClick={handleCreate}
                 disabled={createGame.isPending}
                 className="bg-primary text-primary-foreground hover:bg-primary/90 min-w-[120px]"
               >
@@ -80,26 +81,28 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="h-px w-full bg-border"></div>
+          <div className="h-px w-full bg-border" />
 
+          {/* Join private */}
           <div className="space-y-4">
             <h2 className="text-xl font-semibold uppercase tracking-wider text-foreground">Join Private</h2>
             <div className="space-y-2">
-              <Input 
-                placeholder="Game ID" 
-                value={joinId} 
-                onChange={(e) => setJoinId(e.target.value)} 
+              <Input
+                placeholder="Game ID"
+                value={joinId}
+                onChange={(e) => setJoinId(e.target.value)}
                 className="bg-muted border-muted-border font-mono text-sm"
               />
               <div className="flex gap-2">
-                <Input 
-                  placeholder="Your Name" 
-                  value={joinName} 
-                  onChange={(e) => setJoinName(e.target.value)} 
+                <Input
+                  placeholder="Your Name"
+                  value={joinName}
+                  onChange={(e) => setJoinName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleJoin(joinId, joinName)}
                   className="bg-muted border-muted-border font-mono text-sm"
                 />
-                <Button 
-                  onClick={() => handleJoin(joinId, joinName)} 
+                <Button
+                  onClick={() => handleJoin(joinId, joinName)}
                   disabled={joinGame.isPending || !joinId}
                   variant="secondary"
                   className="min-w-[120px]"
@@ -109,9 +112,10 @@ export default function Home() {
               </div>
             </div>
           </div>
-          
-          <div className="h-px w-full bg-border"></div>
 
+          <div className="h-px w-full bg-border" />
+
+          {/* Open signals */}
           <div className="space-y-4">
             <h2 className="text-xl font-semibold uppercase tracking-wider text-foreground flex items-center justify-between">
               <span>Open Signals</span>
@@ -126,14 +130,35 @@ export default function Home() {
             ) : (
               <div className="space-y-2">
                 {games.map(game => (
-                  <div key={game.id} className="flex items-center justify-between p-3 bg-muted rounded border border-border group hover:border-primary/50 transition-colors">
-                    <div className="flex flex-col">
-                      <span className="font-mono text-primary text-sm">{game.player1Name}</span>
-                      <span className="text-xs text-muted-foreground font-mono truncate max-w-[150px]">{game.id}</span>
+                  <div key={game.id} className="p-3 bg-muted rounded border border-border group hover:border-primary/50 transition-colors space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-col">
+                        <span className="font-mono text-primary text-sm">{game.player1Name}</span>
+                        <span className="text-xs text-muted-foreground font-mono truncate max-w-[180px]">{game.id}</span>
+                      </div>
                     </div>
-                    <Button size="sm" variant="outline" onClick={() => handleJoin(game.id, joinName || "Player 2")} className="font-mono text-xs uppercase group-hover:bg-primary group-hover:text-primary-foreground">
-                      Intercept
-                    </Button>
+                    {/* Name required to intercept */}
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Your name to join"
+                        className="bg-background border-border font-mono text-xs h-8"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleJoin(game.id, (e.target as HTMLInputElement).value);
+                        }}
+                        id={`intercept-name-${game.id}`}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const input = document.getElementById(`intercept-name-${game.id}`) as HTMLInputElement;
+                          handleJoin(game.id, input?.value ?? "");
+                        }}
+                        className="font-mono text-xs uppercase group-hover:bg-primary group-hover:text-primary-foreground shrink-0"
+                      >
+                        Intercept
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>

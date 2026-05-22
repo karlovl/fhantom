@@ -96,7 +96,7 @@ export const GetGameResponse = zod.object({
 })),
   "moveCommitted": zod.boolean().describe('True if the mover has committed their move this turn'),
   "isYourTurn": zod.boolean(),
-  "spectating": zod.boolean().optional().describe('True when viewing in fog-free spectator mode (all pieces revealed)'),
+  "spectating": zod.boolean().describe('True when viewing in fog-free spectator mode (all pieces revealed)'),
   "winner": zod.number().nullable(),
   "winCondition": zod.union([zod.literal('capture'),zod.literal('forfeit'),zod.literal(null)]).nullable()
 })
