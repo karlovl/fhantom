@@ -1,6 +1,4 @@
-# fhantom
-
-# Fathom(Devourer)
+# fhantom(Devourer)
 
 A two-player fog-of-war board game. Move in secret, guess your opponent's destination, capture their pieces to win.
 
